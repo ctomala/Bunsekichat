@@ -1718,7 +1718,13 @@ def admin_page(user):
     total_students = len(students)
     total_questions = len(logs[logs["role"] == "user"]) if not logs.empty else 0
     active_students = logs[logs["role"] == "user"]["user_id"].nunique() if not logs.empty else 0
-    avg_score = quizzes["score"].mean() if not quizzes.empty and "score" in quizzes else 0
+    if not quizzes.empty and "score" in quizzes.columns:
+    quizzes["score"] = pd.to_numeric(quizzes["score"], errors="coerce")
+    avg_score = quizzes["score"].dropna().mean()
+    if pd.isna(avg_score):
+        avg_score = 0
+else:
+    avg_score = 0
 
     k1,k2,k3,k4 = st.columns(4)
     k1.markdown(f"<div class='metric'><b>{total_students}</b><br><span>Estudiantes</span></div>", unsafe_allow_html=True)
