@@ -4,10 +4,6 @@ venv/
 # Variables privadas
 .env
 
-# Base de datos local SQLite
-*.db
-*.db-shm
-*.db-wal
 
 # Caché de Python
 __pycache__/
