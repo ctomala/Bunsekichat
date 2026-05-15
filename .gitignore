@@ -1,0 +1,22 @@
+# Entorno virtual
+venv/
+
+# Variables privadas
+.env
+
+# Base de datos local SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# Caché de Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Archivos temporales
+.DS_Store
+Thumbs.db
+
+# Secretos de Streamlit
+.streamlit/secrets.toml
