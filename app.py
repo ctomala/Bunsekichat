@@ -42,7 +42,12 @@ SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "20"))
 # Lee la API desde .env. Para pruebas locales, puedes pegar una clave temporal en GEMINI_API_KEY_FALLBACK.
 # IMPORTANTE: no subas claves reales a internet ni a GitHub.
 GEMINI_API_KEY_FALLBACK = ""
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip() or GEMINI_API_KEY_FALLBACK.strip()
+
+# Compatible con local (.env) y Streamlit Cloud (Secrets)
+try:
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip() or GEMINI_API_KEY_FALLBACK.strip()
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
