@@ -1,12 +1,10 @@
-import os, re, json, hashlib, time, threading
+import os, re, json, sqlite3, hashlib, time, threading
 from datetime import datetime, date, timedelta
 from io import BytesIO
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-import psycopg2
-from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 from google import genai
 
@@ -38,12 +36,7 @@ ENV_PATH = os.path.join(BASE_DIR, ".env")
 load_dotenv(dotenv_path=ENV_PATH)
 
 APP_NAME = "BunsekiChat"
-# Supabase/PostgreSQL: usar DATABASE_URL en Streamlit Secrets o .env
-try:
-    DATABASE_URL = st.secrets["DATABASE_URL"]
-except Exception:
-    DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-
+DB_PATH = os.path.join(BASE_DIR, "bunsekichat.db")
 DB_LOCK = threading.RLock()
 SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "20"))
 # Lee la API desde .env. Para pruebas locales, puedes pegar una clave temporal en GEMINI_API_KEY_FALLBACK.
@@ -650,238 +643,176 @@ def bunseki_logo_html(title="BunsekiChat", subtitle="Tutor personalizado de mate
     )
 
 
-
-# ---------------- DB PostgreSQL / Supabase ----------------
-def _pg_connect():
-    """Conexión PostgreSQL compatible con Supabase."""
-    if not DATABASE_URL:
-        st.error("Falta DATABASE_URL. Configúralo en Streamlit Cloud → App → Settings → Secrets.")
-        st.stop()
-    kwargs = {"cursor_factory": RealDictCursor}
-    if "sslmode=" not in DATABASE_URL.lower():
-        kwargs["sslmode"] = "require"
-    c = psycopg2.connect(DATABASE_URL, **kwargs)
-    c.autocommit = True
-    return c
-
-
+# ---------------- DB ----------------
 def conn():
-    """Mantiene el nombre conn() para no cambiar la lógica visual de la app."""
+    """Conexion SQLite robusta para Streamlit y Windows."""
     last_error = None
-    for attempt in range(5):
+    for attempt in range(10):
         try:
-            return _pg_connect()
-        except Exception as e:
+            c = sqlite3.connect(
+                DB_PATH,
+                timeout=60,
+                check_same_thread=False,
+                isolation_level=None,
+            )
+            c.row_factory = sqlite3.Row
+            c.execute("PRAGMA busy_timeout=60000;")
+            c.execute("PRAGMA foreign_keys=ON;")
+            c.execute("PRAGMA synchronous=NORMAL;")
+            try:
+                c.execute("PRAGMA journal_mode=WAL;")
+            except sqlite3.OperationalError:
+                pass
+            return c
+        except sqlite3.OperationalError as e:
             last_error = e
-            time.sleep(0.4 * (attempt + 1))
+            if "locked" in str(e).lower() or "busy" in str(e).lower():
+                time.sleep(0.4 * (attempt + 1))
+                continue
+            raise
     raise last_error
 
-
-def fetchone(sql, params=None):
-    c = conn()
-    try:
-        with c.cursor() as cur:
-            cur.execute(sql, params or ())
-            row = cur.fetchone()
-            return dict(row) if row else None
-    finally:
-        c.close()
-
-
-def fetchall(sql, params=None):
-    c = conn()
-    try:
-        with c.cursor() as cur:
-            cur.execute(sql, params or ())
-            rows = cur.fetchall()
-            return [dict(r) for r in rows]
-    finally:
-        c.close()
-
-
-def execute(sql, params=None, returning=False):
-    c = conn()
-    try:
-        with c.cursor() as cur:
-            cur.execute(sql, params or ())
-            if returning:
-                row = cur.fetchone()
-                return dict(row) if row else None
-            return None
-    finally:
-        c.close()
-
-
 def safe_password(password: str) -> bytes:
+    """Devuelve un digest SHA-256 de longitud fija para evitar el límite de 72 bytes de bcrypt."""
     password = password or ""
     return hashlib.sha256(password.encode("utf-8")).digest()
 
-
 def hash_password(password: str) -> str:
+    """Hash seguro: SHA-256 previo + bcrypt. Acepta contraseñas largas sin error."""
     import bcrypt as bcrypt_lib
     return bcrypt_lib.hashpw(safe_password(password), bcrypt_lib.gensalt()).decode("utf-8")
 
-
 def verify_password(password: str, password_hash: str) -> bool:
+    """Verifica contraseñas usando el mismo pre-hash SHA-256 + bcrypt."""
     try:
         import bcrypt as bcrypt_lib
         return bcrypt_lib.checkpw(safe_password(password), password_hash.encode("utf-8"))
     except Exception:
         return False
 
-
 def init_db():
-    """Crea el esquema PostgreSQL equivalente al antiguo SQLite."""
     with DB_LOCK:
         c = conn()
-        try:
-            with c.cursor() as cur:
-                cur.execute("""
-                CREATE TABLE IF NOT EXISTS users(
-                    id SERIAL PRIMARY KEY,
-                    username TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    role TEXT DEFAULT 'student',
-                    active BOOLEAN DEFAULT TRUE,
-                    created_at TEXT NOT NULL,
-                    last_login TEXT
-                );
-                CREATE TABLE IF NOT EXISTS profiles(
-                    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-                    first_names TEXT,
-                    last_names TEXT,
-                    birth_date TEXT,
-                    course TEXT,
-                    teacher TEXT,
-                    phone TEXT,
-                    province TEXT,
-                    city TEXT,
-                    canton TEXT,
-                    address TEXT,
-                    gps_lat DOUBLE PRECISION,
-                    gps_lon DOUBLE PRECISION,
-                    gps_accuracy TEXT,
-                    level TEXT DEFAULT 'Inicial',
-                    profile_completed INTEGER DEFAULT 0,
-                    last_gps_lat DOUBLE PRECISION,
-                    last_gps_lon DOUBLE PRECISION,
-                    last_gps_accuracy DOUBLE PRECISION,
-                    last_gps_at TEXT
-                );
-                CREATE TABLE IF NOT EXISTS interactions(
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    role TEXT NOT NULL,
-                    topic TEXT,
-                    subtopic TEXT,
-                    level TEXT,
-                    message TEXT NOT NULL,
-                    clean_message TEXT,
-                    model TEXT,
-                    tokens_est INTEGER,
-                    latency_ms INTEGER,
-                    created_at TEXT NOT NULL,
-                    ip_info TEXT,
-                    gps_lat DOUBLE PRECISION,
-                    gps_lon DOUBLE PRECISION,
-                    gps_accuracy DOUBLE PRECISION,
-                    gps_source TEXT
-                );
-                CREATE TABLE IF NOT EXISTS location_events(
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    event_type TEXT NOT NULL,
-                    page TEXT,
-                    topic TEXT,
-                    subtopic TEXT,
-                    gps_lat DOUBLE PRECISION,
-                    gps_lon DOUBLE PRECISION,
-                    gps_accuracy DOUBLE PRECISION,
-                    gps_source TEXT,
-                    created_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS quizzes(
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    topic TEXT,
-                    level_from TEXT,
-                    level_to TEXT,
-                    score DOUBLE PRECISION,
-                    passed INTEGER,
-                    answers_json TEXT,
-                    created_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS settings(
-                    key TEXT PRIMARY KEY,
-                    value TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_interactions_user_id ON interactions(user_id);
-                CREATE INDEX IF NOT EXISTS idx_interactions_created_at ON interactions(created_at);
-                CREATE INDEX IF NOT EXISTS idx_location_events_user_id ON location_events(user_id);
-                CREATE INDEX IF NOT EXISTS idx_quizzes_user_id ON quizzes(user_id);
-                """)
-                cur.execute("INSERT INTO settings(key,value) VALUES('session_timeout_minutes', %s) ON CONFLICT (key) DO NOTHING", (str(SESSION_TIMEOUT_MINUTES),))
-                cur.execute("SELECT id FROM users WHERE username=%s", (ADMIN_USER,))
-                if not cur.fetchone():
-                    cur.execute("INSERT INTO users(username,password_hash,role,active,created_at) VALUES(%s,%s,%s,%s,%s)", (ADMIN_USER, hash_password(ADMIN_PASSWORD), 'admin', True, now()))
-        finally:
-            c.close()
+        cur = c.cursor()
+        cur.executescript('''
+        CREATE TABLE IF NOT EXISTS users(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT DEFAULT 'student',
+            active INTEGER DEFAULT 1,
+            created_at TEXT NOT NULL,
+            last_login TEXT
+        );
+        CREATE TABLE IF NOT EXISTS profiles(
+            user_id INTEGER PRIMARY KEY,
+            first_names TEXT, last_names TEXT, birth_date TEXT, course TEXT, teacher TEXT,
+            phone TEXT, province TEXT, city TEXT, canton TEXT, address TEXT,
+            gps_lat REAL, gps_lon REAL, gps_accuracy TEXT, level TEXT DEFAULT 'Inicial', profile_completed INTEGER DEFAULT 0,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS interactions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL, role TEXT NOT NULL, topic TEXT, subtopic TEXT, level TEXT,
+            message TEXT NOT NULL, clean_message TEXT, model TEXT, tokens_est INTEGER, latency_ms INTEGER,
+            created_at TEXT NOT NULL, ip_info TEXT, gps_lat REAL, gps_lon REAL, gps_accuracy REAL, gps_source TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS location_events(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            page TEXT, topic TEXT, subtopic TEXT,
+            gps_lat REAL, gps_lon REAL, gps_accuracy REAL, gps_source TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS quizzes(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL, topic TEXT, level_from TEXT, level_to TEXT, score REAL,
+            passed INTEGER, answers_json TEXT, created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+        ''')
+        # Migraciones seguras para bases existentes: si la tabla ya fue creada antes,
+        # se agregan las nuevas columnas sin borrar datos.
+        for alter_sql in [
+            "ALTER TABLE interactions ADD COLUMN gps_accuracy REAL",
+            "ALTER TABLE interactions ADD COLUMN gps_source TEXT",
+            "ALTER TABLE profiles ADD COLUMN last_gps_lat REAL",
+            "ALTER TABLE profiles ADD COLUMN last_gps_lon REAL",
+            "ALTER TABLE profiles ADD COLUMN last_gps_accuracy REAL",
+            "ALTER TABLE profiles ADD COLUMN last_gps_at TEXT",
+        ]:
+            try:
+                cur.execute(alter_sql)
+            except sqlite3.OperationalError:
+                pass
 
+        cur.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('session_timeout_minutes',?)", (str(SESSION_TIMEOUT_MINUTES),))
+        cur.execute("SELECT id FROM users WHERE username=?", (ADMIN_USER,))
+        if not cur.fetchone():
+            cur.execute(
+                "INSERT INTO users(username,password_hash,role,active,created_at) VALUES(?,?,?,?,?)",
+                (ADMIN_USER, hash_password(ADMIN_PASSWORD), 'admin', 1, now())
+            )
+        c.close()
 
 @st.cache_resource
 def setup_database_once():
     init_db()
     return True
 
-
 def now(): return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-
 def get_timeout():
-    r = fetchone("SELECT value FROM settings WHERE key=%s", ('session_timeout_minutes',))
+    c=conn(); r=c.execute("SELECT value FROM settings WHERE key='session_timeout_minutes'").fetchone(); c.close()
     return int(r['value']) if r else SESSION_TIMEOUT_MINUTES
-
 
 def set_timeout(minutes:int):
     with DB_LOCK:
-        execute("INSERT INTO settings(key,value) VALUES('session_timeout_minutes', %s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value", (str(minutes),))
-
+        c=conn()
+        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('session_timeout_minutes',?)", (str(minutes),))
+        c.close()
 
 def user_by_username(username):
-    return fetchone("SELECT * FROM users WHERE username=%s", (username.strip().lower(),))
-
+    c=conn(); r=c.execute("SELECT * FROM users WHERE username=?", (username.strip().lower(),)).fetchone(); c.close(); return dict(r) if r else None
 
 def create_user(username, password):
     with DB_LOCK:
-        row = execute("INSERT INTO users(username,password_hash,role,active,created_at) VALUES(%s,%s,%s,%s,%s) RETURNING id", (username.strip().lower(), hash_password(password), 'student', True, now()), returning=True)
-        uid = row['id']
-        execute("INSERT INTO profiles(user_id) VALUES(%s) ON CONFLICT (user_id) DO NOTHING", (uid,))
+        c=conn(); cur=c.cursor()
+        cur.execute("INSERT INTO users(username,password_hash,role,active,created_at) VALUES(?,?,?,?,?)", (username.strip().lower(), hash_password(password), 'student', 1, now()))
+        uid=cur.lastrowid
+        cur.execute("INSERT INTO profiles(user_id) VALUES(?)", (uid,))
+        c.close()
         return uid
 
-
 def authenticate(username, password):
-    u = user_by_username(username)
-    if not u or not u.get('active') or not verify_password(password, u['password_hash']):
+    u=user_by_username(username)
+    if not u or not u['active'] or not verify_password(password, u['password_hash']):
         return None
     with DB_LOCK:
-        execute("UPDATE users SET last_login=%s WHERE id=%s", (now(), u['id']))
+        c=conn()
+        c.execute("UPDATE users SET last_login=? WHERE id=?", (now(), u['id']))
+        c.close()
     return u
 
-
 def get_profile(uid):
-    return fetchone("SELECT * FROM profiles WHERE user_id=%s", (uid,)) or {}
-
+    c=conn(); r=c.execute("SELECT * FROM profiles WHERE user_id=?", (uid,)).fetchone(); c.close(); return dict(r) if r else {}
 
 def update_profile(uid, data):
-    if not data:
-        return
-    cols = ','.join([f"{k}=%s" for k in data])
+    cols = ','.join([f"{k}=?" for k in data])
     vals = list(data.values()) + [uid]
     with DB_LOCK:
-        execute(f"UPDATE profiles SET {cols} WHERE user_id=%s", vals)
-
+        c=conn()
+        c.execute(f"UPDATE profiles SET {cols} WHERE user_id=?", vals)
+        c.close()
 
 def normalize_gps_payload(raw):
+    """Convierte la respuesta del navegador en un diccionario uniforme.
+    El navegador pedirá permiso al usuario. Funciona en localhost o HTTPS.
+    """
     if not raw or not isinstance(raw, dict):
         return None
     coords = raw.get('coords') if isinstance(raw.get('coords'), dict) else raw
@@ -889,22 +820,33 @@ def normalize_gps_payload(raw):
     lon = coords.get('longitude', coords.get('lon', coords.get('lng')))
     acc = coords.get('accuracy')
     try:
-        lat = float(lat); lon = float(lon); acc = float(acc) if acc is not None else None
+        lat = float(lat)
+        lon = float(lon)
+        acc = float(acc) if acc is not None else None
     except (TypeError, ValueError):
         return None
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return None
     return {'lat': lat, 'lon': lon, 'accuracy': acc, 'source': 'browser_geolocation'}
 
-
 def capture_browser_gps(uid=None, page='', topic='', subtopic='', event_type='gps_refresh', show_status=False):
+    """Captura GPS del navegador una sola vez por rerun y reutiliza el valor en
+    session_state para guardar ubicación en ingresos, chats, quiz e interacciones.
+    Esto evita StreamlitDuplicateElementKey de streamlit-js-eval/get_geolocation.
+    """
     if 'current_gps' not in st.session_state:
         st.session_state.current_gps = None
+
     if get_geolocation is None:
         if show_status:
             st.info('GPS automático no activo. Instala: pip install streamlit-js-eval')
         return st.session_state.current_gps
+
     gps = None
+
+    # IMPORTANTE: get_geolocation crea un componente Streamlit. Si se llama dos veces
+    # en el mismo rerun con la misma key, aparece StreamlitDuplicateElementKey.
+    # Por eso solo se renderiza una vez y las siguientes llamadas usan current_gps.
     if not st.session_state.get('_gps_widget_rendered_this_run', False):
         st.session_state['_gps_widget_rendered_this_run'] = True
         try:
@@ -917,6 +859,7 @@ def capture_browser_gps(uid=None, page='', topic='', subtopic='', event_type='gp
             gps = None
     else:
         gps = st.session_state.get('current_gps')
+
     if gps:
         st.session_state.current_gps = gps
         if uid:
@@ -930,38 +873,58 @@ def capture_browser_gps(uid=None, page='', topic='', subtopic='', event_type='gp
             st.caption(f"📍 GPS activo: {gps['lat']:.6f}, {gps['lon']:.6f}")
     elif show_status and st.session_state.current_gps is None:
         st.caption('📍 Esperando permiso de ubicación del navegador...')
+
     return st.session_state.current_gps
 
-
 def update_profile_last_gps(uid, gps):
-    if not gps: return
+    if not gps:
+        return
     with DB_LOCK:
-        execute("""UPDATE profiles SET last_gps_lat=%s, last_gps_lon=%s, last_gps_accuracy=%s, last_gps_at=%s WHERE user_id=%s""", (gps.get('lat'), gps.get('lon'), gps.get('accuracy'), now(), uid))
-
+        c=conn()
+        c.execute('''UPDATE profiles
+                     SET last_gps_lat=?, last_gps_lon=?, last_gps_accuracy=?, last_gps_at=?
+                     WHERE user_id=?''',
+                  (gps.get('lat'), gps.get('lon'), gps.get('accuracy'), now(), uid))
+        c.close()
 
 def log_location_event(uid, event_type, page='', topic='', subtopic='', gps=None):
-    if not gps: return
+    """Registra eventos de ubicación para mapas de calor por ingreso, navegación y uso."""
+    if not gps:
+        return
     with DB_LOCK:
-        execute("""INSERT INTO location_events(user_id,event_type,page,topic,subtopic,gps_lat,gps_lon,gps_accuracy,gps_source,created_at) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (uid, event_type, page, topic, subtopic, gps.get('lat'), gps.get('lon'), gps.get('accuracy'), gps.get('source'), now()))
-
+        c=conn()
+        c.execute('''INSERT INTO location_events(user_id,event_type,page,topic,subtopic,gps_lat,gps_lon,gps_accuracy,gps_source,created_at)
+                     VALUES(?,?,?,?,?,?,?,?,?,?)''',
+                  (uid, event_type, page, topic, subtopic, gps.get('lat'), gps.get('lon'),
+                   gps.get('accuracy'), gps.get('source'), now()))
+        c.close()
 
 def log_interaction(uid, role, message, topic='', subtopic='', level='', model='', latency=0, gps=None):
     clean = normalize_math(message)
     gps = gps or st.session_state.get('current_gps')
     with DB_LOCK:
-        execute("""INSERT INTO interactions(user_id,role,topic,subtopic,level,message,clean_message,model,tokens_est,latency_ms,created_at,gps_lat,gps_lon,gps_accuracy,gps_source) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (uid, role, topic, subtopic, level, message, clean, model, max(1, len(message)//4), latency, now(), gps.get('lat') if gps else None, gps.get('lon') if gps else None, gps.get('accuracy') if gps else None, gps.get('source') if gps else None))
-
+        c=conn()
+        c.execute('''INSERT INTO interactions(user_id,role,topic,subtopic,level,message,clean_message,model,tokens_est,latency_ms,created_at,gps_lat,gps_lon,gps_accuracy,gps_source)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (uid,role,topic,subtopic,level,message,clean,model,max(1,len(message)//4),latency,now(),
+             gps.get('lat') if gps else None, gps.get('lon') if gps else None,
+             gps.get('accuracy') if gps else None, gps.get('source') if gps else None))
+        c.close()
 
 def interactions(uid=None):
-    if uid:
-        return fetchall("SELECT * FROM interactions WHERE user_id=%s ORDER BY id", (uid,))
-    return fetchall("SELECT i.*,u.username FROM interactions i JOIN users u ON u.id=i.user_id ORDER BY i.id DESC")
-
+    c=conn()
+    if uid: rows=c.execute("SELECT * FROM interactions WHERE user_id=? ORDER BY id", (uid,)).fetchall()
+    else: rows=c.execute("SELECT i.*,u.username FROM interactions i JOIN users u ON u.id=i.user_id ORDER BY i.id DESC").fetchall()
+    c.close(); return [dict(r) for r in rows]
 
 def get_location_events(uid=None):
+    c=conn()
     if uid:
-        return fetchall("SELECT * FROM location_events WHERE user_id=%s ORDER BY id DESC", (uid,))
-    return fetchall("SELECT le.*,u.username FROM location_events le JOIN users u ON u.id=le.user_id ORDER BY le.id DESC")
+        rows=c.execute("SELECT * FROM location_events WHERE user_id=? ORDER BY id DESC", (uid,)).fetchall()
+    else:
+        rows=c.execute("SELECT le.*,u.username FROM location_events le JOIN users u ON u.id=le.user_id ORDER BY le.id DESC").fetchall()
+    c.close()
+    return [dict(r) for r in rows]
 
 # ---------------- IA ----------------
 def normalize_math(text:str)->str:
@@ -1166,8 +1129,9 @@ def adaptive_quiz_for_user(uid, current_topic):
 
 def save_quiz(uid, topic, old, new, score, passed, answers):
     with DB_LOCK:
-        execute("INSERT INTO quizzes(user_id,topic,level_from,level_to,score,passed,answers_json,created_at) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)",
-                (uid, topic, old, new, score, int(passed), json.dumps(answers, ensure_ascii=False), now()))
+        c=conn()
+        c.execute("INSERT INTO quizzes(user_id,topic,level_from,level_to,score,passed,answers_json,created_at) VALUES(?,?,?,?,?,?,?,?)", (uid,topic,old,new,score,int(passed),json.dumps(answers,ensure_ascii=False),now()))
+        c.close()
 
 
 # ---------------- Control de lenguaje y sugerencias ----------------
@@ -1192,46 +1156,42 @@ def prompt_suggestions(topic: str, subtopic: str, level: str):
 # ---------------- Exportación docente ----------------
 def get_teacher_tables():
     c = conn()
-    try:
-        users = pd.read_sql_query("""
-            SELECT u.id,u.username,u.role,u.active,u.created_at,u.last_login,
-                   p.first_names,p.last_names,p.course,p.teacher,p.province,p.city,p.level
-            FROM users u LEFT JOIN profiles p ON p.user_id=u.id
-            ORDER BY u.id DESC
-        """, c)
-        logs = pd.read_sql_query("""
-            SELECT i.*,u.username,p.first_names,p.last_names,p.course,p.teacher,p.level AS profile_level
-            FROM interactions i
-            JOIN users u ON u.id=i.user_id
-            LEFT JOIN profiles p ON p.user_id=i.user_id
-            ORDER BY i.id DESC
-        """, c)
-        quizzes = pd.read_sql_query("""
-            SELECT q.*,u.username,p.first_names,p.last_names,p.course,p.teacher,p.level AS profile_level
-            FROM quizzes q
-            JOIN users u ON u.id=q.user_id
-            LEFT JOIN profiles p ON p.user_id=q.user_id
-            ORDER BY q.id DESC
-        """, c)
-        return users, logs, quizzes
-    finally:
-        c.close()
-
+    users = pd.read_sql_query("""
+        SELECT u.id,u.username,u.role,u.active,u.created_at,u.last_login,
+               p.first_names,p.last_names,p.course,p.teacher,p.province,p.city,p.level
+        FROM users u LEFT JOIN profiles p ON p.user_id=u.id
+        ORDER BY u.id DESC
+    """, c)
+    logs = pd.read_sql_query("""
+        SELECT i.*,u.username,p.first_names,p.last_names,p.course,p.teacher,p.level AS profile_level
+        FROM interactions i
+        JOIN users u ON u.id=i.user_id
+        LEFT JOIN profiles p ON p.user_id=i.user_id
+        ORDER BY i.id DESC
+    """, c)
+    quizzes = pd.read_sql_query("""
+        SELECT q.*,u.username,p.first_names,p.last_names,p.course,p.teacher,p.level AS profile_level
+        FROM quizzes q
+        JOIN users u ON u.id=q.user_id
+        LEFT JOIN profiles p ON p.user_id=q.user_id
+        ORDER BY q.id DESC
+    """, c)
+    c.close()
+    return users, logs, quizzes
 
 def build_student_summary(uid: int):
-    profile = fetchone("""
+    c = conn()
+    profile_row = c.execute("""
         SELECT u.id,u.username,u.role,u.active,u.created_at,u.last_login,
                p.first_names,p.last_names,p.course,p.teacher,p.phone,p.province,p.city,p.canton,p.address,p.level
-        FROM users u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.id=%s
-    """, (uid,)) or {"id": uid, "username": f"usuario_{uid}"}
-    c = conn()
-    try:
-        logs = pd.read_sql_query("""
-            SELECT id,created_at,role,topic,subtopic,level,model,tokens_est,latency_ms,gps_lat,gps_lon,gps_accuracy,gps_source,clean_message AS message
-            FROM interactions WHERE user_id=%s ORDER BY id ASC
-        """, c, params=(uid,))
-    finally:
-        c.close()
+        FROM users u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.id=?
+    """, (uid,)).fetchone()
+    logs = pd.read_sql_query("""
+        SELECT id,created_at,role,topic,subtopic,level,model,tokens_est,latency_ms,gps_lat,gps_lon,gps_accuracy,gps_source,clean_message AS message
+        FROM interactions WHERE user_id=? ORDER BY id ASC
+    """, c, params=(uid,))
+    c.close()
+    profile = dict(profile_row) if profile_row else {"id": uid, "username": f"usuario_{uid}"}
     if logs.empty:
         logs = pd.DataFrame(columns=["id","created_at","role","topic","subtopic","level","model","tokens_est","latency_ms","message"])
     return profile, logs
