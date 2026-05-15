@@ -1623,76 +1623,6 @@ def student_page(user):
             st.plotly_chart(fig, use_container_width=True)
 
 
-
-
-def get_all_gps_points():
-    """Consolida puntos GPS desde interactions, location_events y profiles."""
-    rows = fetchall("""
-        SELECT 
-            i.user_id,
-            u.username,
-            p.first_names,
-            p.last_names,
-            i.role,
-            i.topic,
-            i.subtopic,
-            i.created_at,
-            i.gps_lat,
-            i.gps_lon,
-            i.gps_accuracy,
-            i.gps_source,
-            'interaction' AS gps_origin
-        FROM interactions i
-        JOIN users u ON u.id = i.user_id
-        LEFT JOIN profiles p ON p.user_id = i.user_id
-        WHERE i.gps_lat IS NOT NULL 
-          AND i.gps_lon IS NOT NULL
-
-        UNION ALL
-
-        SELECT 
-            le.user_id,
-            u.username,
-            p.first_names,
-            p.last_names,
-            'location' AS role,
-            le.topic,
-            le.subtopic,
-            le.created_at,
-            le.gps_lat,
-            le.gps_lon,
-            le.gps_accuracy,
-            le.gps_source,
-            'location_event' AS gps_origin
-        FROM location_events le
-        JOIN users u ON u.id = le.user_id
-        LEFT JOIN profiles p ON p.user_id = le.user_id
-        WHERE le.gps_lat IS NOT NULL 
-          AND le.gps_lon IS NOT NULL
-
-        UNION ALL
-
-        SELECT
-            p.user_id,
-            u.username,
-            p.first_names,
-            p.last_names,
-            'profile' AS role,
-            NULL AS topic,
-            NULL AS subtopic,
-            p.last_gps_at AS created_at,
-            p.last_gps_lat AS gps_lat,
-            p.last_gps_lon AS gps_lon,
-            p.last_gps_accuracy AS gps_accuracy,
-            'profile_last_gps' AS gps_source,
-            'profile' AS gps_origin
-        FROM profiles p
-        JOIN users u ON u.id = p.user_id
-        WHERE p.last_gps_lat IS NOT NULL
-          AND p.last_gps_lon IS NOT NULL
-    """)
-    return pd.DataFrame(rows or [])
-
 def render_teacher_gps_heatmap(logs: pd.DataFrame, filtered_students: pd.DataFrame | None = None):
     """Mapa de calor docente basado en las coordenadas GPS guardadas en interactions.
     Usa únicamente registros con gps_lat/gps_lon válidos y permite respetar los filtros
@@ -1709,13 +1639,16 @@ def render_teacher_gps_heatmap(logs: pd.DataFrame, filtered_students: pd.DataFra
         st.info("Aún no existen interacciones para generar el mapa de calor GPS.")
         return
 
-    gps_df = get_all_gps_points()
+    gps_df = logs.copy()
 
     # Respeta los filtros de curso/docente/nivel aplicados al dashboard.
     if filtered_students is not None and not filtered_students.empty and "id" in filtered_students.columns:
         allowed_ids = set(filtered_students["id"].dropna().astype(int).tolist())
         gps_df = gps_df[gps_df["user_id"].isin(allowed_ids)]
 
+    # El mapa se construye desde la tabla interactions, no desde el registro manual del perfil.
+    if "role" in gps_df.columns:
+        gps_df = gps_df[gps_df["role"].astype(str).str.lower().eq("user")]
 
     required_cols = {"gps_lat", "gps_lon"}
     if not required_cols.issubset(set(gps_df.columns)):
