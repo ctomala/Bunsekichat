@@ -947,7 +947,7 @@ def log_location_event(uid, event_type, page='', topic='', subtopic='', gps=None
 
 def log_interaction(uid, role, message, topic='', subtopic='', level='', model='', latency=0, gps=None):
     clean = normalize_math(message)
-    gps = gps or st.session_state.get('current_gps') or {}
+    gps = gps or st.session_state.get('current_gps')
     with DB_LOCK:
         execute("""INSERT INTO interactions(user_id,role,topic,subtopic,level,message,clean_message,model,tokens_est,latency_ms,created_at,gps_lat,gps_lon,gps_accuracy,gps_source) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (uid, role, topic, subtopic, level, message, clean, model, max(1, len(message)//4), latency, now(), gps.get('lat') if gps else None, gps.get('lon') if gps else None, gps.get('accuracy') if gps else None, gps.get('source') if gps else None))
 
@@ -1190,68 +1190,32 @@ def prompt_suggestions(topic: str, subtopic: str, level: str):
     ]
 
 # ---------------- Exportación docente ----------------
-def _rows_to_df(rows, columns=None):
-    """Convierte listas de diccionarios en DataFrame sin depender de pandas.read_sql_query.
-    Esto evita exportaciones vacías o filas extrañas cuando el driver PostgreSQL cambia el cursor.
-    """
-    df = pd.DataFrame(rows or [])
-    if df.empty and columns:
-        return pd.DataFrame(columns=columns)
-    return df
-
-
-def _clean_report_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Limpia filas inválidas y asegura columnas esperadas para exportar."""
-    expected = ["id", "created_at", "role", "topic", "subtopic", "level", "model",
-                "tokens_est", "latency_ms", "gps_lat", "gps_lon", "gps_accuracy",
-                "gps_source", "message"]
-    if df is None or df.empty:
-        return pd.DataFrame(columns=expected)
-
-    df = df.copy()
-    for col in expected:
-        if col not in df.columns:
-            df[col] = ""
-
-    # Corrige casos donde alguna exportación anterior registró filas como encabezados.
-    mask_bad = pd.Series(False, index=df.index)
-    for col in ["created_at", "role", "topic", "subtopic", "level", "message"]:
-        mask_bad = mask_bad | df[col].astype(str).str.strip().eq(col)
-
-    df = df[~mask_bad].copy()
-    df = df[expected]
-
-    # Orden y limpieza visual
-    df["created_at"] = df["created_at"].fillna("").astype(str)
-    df["message"] = df["message"].fillna("").astype(str)
-    return df
-
-
 def get_teacher_tables():
-    users_rows = fetchall("""
-        SELECT u.id,u.username,u.role,u.active,u.created_at,u.last_login,
-               p.first_names,p.last_names,p.course,p.teacher,p.province,p.city,p.level
-        FROM users u LEFT JOIN profiles p ON p.user_id=u.id
-        ORDER BY u.id DESC
-    """)
-    logs_rows = fetchall("""
-        SELECT i.*,u.username,p.first_names,p.last_names,p.course,p.teacher,p.level AS profile_level
-        FROM interactions i
-        JOIN users u ON u.id=i.user_id
-        LEFT JOIN profiles p ON p.user_id=i.user_id
-        ORDER BY i.id DESC
-    """)
-    quizzes_rows = fetchall("""
-        SELECT q.*,u.username,p.first_names,p.last_names,p.course,p.teacher,p.level AS profile_level
-        FROM quizzes q
-        JOIN users u ON u.id=q.user_id
-        LEFT JOIN profiles p ON p.user_id=q.user_id
-        ORDER BY q.id DESC
-    """)
-    users = _rows_to_df(users_rows, ["id","username","role","active","created_at","last_login","first_names","last_names","course","teacher","province","city","level"])
-    logs = _rows_to_df(logs_rows, ["id","user_id","role","topic","subtopic","level","message","clean_message","model","tokens_est","latency_ms","created_at","username","first_names","last_names","course","teacher","profile_level","gps_lat","gps_lon","gps_accuracy","gps_source"])
-    quizzes = _rows_to_df(quizzes_rows, ["id","user_id","topic","level_from","level_to","score","passed","answers_json","created_at","username","first_names","last_names","course","teacher","profile_level"])
-    return users, logs, quizzes
+    c = conn()
+    try:
+        users = pd.read_sql_query("""
+            SELECT u.id,u.username,u.role,u.active,u.created_at,u.last_login,
+                   p.first_names,p.last_names,p.course,p.teacher,p.province,p.city,p.level
+            FROM users u LEFT JOIN profiles p ON p.user_id=u.id
+            ORDER BY u.id DESC
+        """, c)
+        logs = pd.read_sql_query("""
+            SELECT i.*,u.username,p.first_names,p.last_names,p.course,p.teacher,p.level AS profile_level
+            FROM interactions i
+            JOIN users u ON u.id=i.user_id
+            LEFT JOIN profiles p ON p.user_id=i.user_id
+            ORDER BY i.id DESC
+        """, c)
+        quizzes = pd.read_sql_query("""
+            SELECT q.*,u.username,p.first_names,p.last_names,p.course,p.teacher,p.level AS profile_level
+            FROM quizzes q
+            JOIN users u ON u.id=q.user_id
+            LEFT JOIN profiles p ON p.user_id=q.user_id
+            ORDER BY q.id DESC
+        """, c)
+        return users, logs, quizzes
+    finally:
+        c.close()
 
 
 def build_student_summary(uid: int):
@@ -1260,18 +1224,17 @@ def build_student_summary(uid: int):
                p.first_names,p.last_names,p.course,p.teacher,p.phone,p.province,p.city,p.canton,p.address,p.level
         FROM users u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.id=%s
     """, (uid,)) or {"id": uid, "username": f"usuario_{uid}"}
-
-    rows = fetchall("""
-        SELECT id,created_at,role,topic,subtopic,level,model,tokens_est,latency_ms,
-               gps_lat,gps_lon,gps_accuracy,gps_source,
-               COALESCE(NULLIF(clean_message,''), message) AS message
-        FROM interactions
-        WHERE user_id=%s
-        ORDER BY id ASC
-    """, (uid,))
-    logs = _clean_report_df(pd.DataFrame(rows or []))
+    c = conn()
+    try:
+        logs = pd.read_sql_query("""
+            SELECT id,created_at,role,topic,subtopic,level,model,tokens_est,latency_ms,gps_lat,gps_lon,gps_accuracy,gps_source,clean_message AS message
+            FROM interactions WHERE user_id=%s ORDER BY id ASC
+        """, c, params=(uid,))
+    finally:
+        c.close()
+    if logs.empty:
+        logs = pd.DataFrame(columns=["id","created_at","role","topic","subtopic","level","model","tokens_est","latency_ms","message"])
     return profile, logs
-
 
 def export_student_docx(uid: int) -> bytes:
     if Document is None:
@@ -1279,8 +1242,7 @@ def export_student_docx(uid: int) -> bytes:
     profile, df = build_student_summary(uid)
     doc = Document()
     doc.add_heading("Reporte individual BunsekiChat", level=1)
-    nombre = f"{profile.get('first_names') or ''} {profile.get('last_names') or ''}".strip()
-    doc.add_paragraph(f"Estudiante: {nombre or profile.get('username','')}")
+    doc.add_paragraph(f"Estudiante: {profile.get('first_names') or ''} {profile.get('last_names') or ''}".strip())
     doc.add_paragraph(f"Usuario: {profile.get('username','')}")
     doc.add_paragraph(f"Curso: {profile.get('course') or 'Sin curso'}")
     doc.add_paragraph(f"Docente: {profile.get('teacher') or 'Sin docente'}")
@@ -1288,7 +1250,7 @@ def export_student_docx(uid: int) -> bytes:
     doc.add_paragraph(f"Fecha de exportación: {now()}")
     doc.add_heading("Consultas e interacciones", level=2)
     if df.empty:
-        doc.add_paragraph("No existen consultas registradas para este estudiante.")
+        doc.add_paragraph("No existen consultas registradas.")
     else:
         table = doc.add_table(rows=1, cols=6)
         table.style = "Table Grid"
@@ -1303,12 +1265,11 @@ def export_student_docx(uid: int) -> bytes:
             cells[3].text = str(r.get("subtopic", ""))
             cells[4].text = str(r.get("level", ""))
             msg = str(r.get("message", ""))
-            cells[5].text = msg[:1200]
+            cells[5].text = msg[:800]
     bio = BytesIO()
     doc.save(bio)
     bio.seek(0)
     return bio.getvalue()
-
 
 def export_student_pdf(uid: int) -> bytes:
     if canvas is None or A4 is None:
@@ -1327,23 +1288,23 @@ def export_student_pdf(uid: int) -> bytes:
         c.drawString(45, y, safe[:115])
         y -= size + 7
     line("Reporte individual BunsekiChat", 16, True)
-    nombre = f"{profile.get('first_names') or ''} {profile.get('last_names') or ''}".strip()
-    line(f"Estudiante: {nombre or profile.get('username','')}", 10)
+    line(f"Estudiante: {profile.get('first_names') or ''} {profile.get('last_names') or ''}", 10)
     line(f"Usuario: {profile.get('username','')} | Curso: {profile.get('course') or 'Sin curso'} | Nivel: {profile.get('level') or 'Sin nivel'}", 10)
     line(f"Docente: {profile.get('teacher') or 'Sin docente'} | Exportado: {now()}", 10)
     line("Consultas e interacciones", 13, True)
     if df.empty:
-        line("No existen consultas registradas para este estudiante.")
+        line("No existen consultas registradas.")
     else:
         for _, r in df.iterrows():
             line(f"[{r.get('created_at','')}] {r.get('role','')} · {r.get('topic','')} / {r.get('subtopic','')}", 9, True)
             msg = str(r.get("message", ""))
-            for chunk in [msg[i:i+100] for i in range(0, min(len(msg), 700), 100)]:
+            for chunk in [msg[i:i+100] for i in range(0, min(len(msg), 500), 100)]:
                 line("  " + chunk, 8)
             y -= 4
     c.save()
     bio.seek(0)
     return bio.getvalue()
+
 
 # ---------------- Sidebar SaaS PRO por roles ----------------
 def sidebar_brand(role_label: str, subtitle: str):
@@ -1743,43 +1704,24 @@ def render_teacher_gps_heatmap(logs: pd.DataFrame, filtered_students: pd.DataFra
 
 def admin_page(user):
     teacher_page = render_teacher_sidebar()
-
-    # CSS específico para que el dashboard docente no se corte y ocupe todo el ancho.
-    st.markdown("""
-    <style>
-    .block-container{
-        max-width:100% !important;
-        padding-left:2rem !important;
-        padding-right:2rem !important;
-        padding-bottom:5rem !important;
-    }
-    div[data-testid="stVerticalBlock"]{overflow:visible !important;}
-    .stPlotlyChart{width:100% !important; overflow:visible !important;}
-    div[data-testid="stDataFrame"]{width:100% !important;}
-    </style>
-    """, unsafe_allow_html=True)
-
     st.markdown("<div class='hero'>" + bunseki_logo_html("Dashboard docente PRO", "Analítica, trazabilidad, exportación y seguimiento académico") + "</div>", unsafe_allow_html=True)
 
     users, logs, quizzes = get_teacher_tables()
-    students = users[users["role"].astype(str).str.lower().eq("student")].copy() if not users.empty and "role" in users.columns else pd.DataFrame()
+    students = users[users["role"] == "student"].copy() if not users.empty else pd.DataFrame()
 
-    # Configuración solo cuando se elige el menú correspondiente
-    if teacher_page == "⚙️ Configuración":
-        st.markdown("<div class='teacher-card'><h3>⚙️ Configuración</h3><p class='small'>Ajustes generales de sesión y parámetros administrativos.</p></div>", unsafe_allow_html=True)
+    with st.sidebar:
+        st.markdown("<div style='font-weight:900;color:#7a1454;font-size:1.15rem;margin:8px 0'>Panel docente</div>", unsafe_allow_html=True)
         timeout = st.number_input("Inactividad (minutos)", 5, 180, get_timeout())
-        if st.button("Guardar configuración", use_container_width=True):
+        if st.button("Guardar configuración"):
             set_timeout(int(timeout)); st.success("Configuración guardada.")
-        return
 
     total_students = len(students)
-    user_logs_all = logs[logs["role"].astype(str).str.lower().eq("user")].copy() if not logs.empty and "role" in logs.columns else pd.DataFrame()
-    total_questions = len(user_logs_all)
-    active_students = user_logs_all["user_id"].nunique() if not user_logs_all.empty and "user_id" in user_logs_all.columns else 0
-
+    total_questions = len(logs[logs["role"] == "user"]) if not logs.empty else 0
+    active_students = logs[logs["role"] == "user"]["user_id"].nunique() if not logs.empty else 0
     if not quizzes.empty and "score" in quizzes.columns:
         quizzes["score"] = pd.to_numeric(quizzes["score"], errors="coerce")
         avg_score = quizzes["score"].dropna().mean()
+
         if pd.isna(avg_score):
             avg_score = 0
     else:
@@ -1793,179 +1735,120 @@ def admin_page(user):
 
     st.markdown("<div class='teacher-card'><h3>Filtros académicos</h3></div>", unsafe_allow_html=True)
     f1,f2,f3 = st.columns(3)
-
-    def opts(df, col):
-        if df.empty or col not in df.columns:
-            return ["Todos"]
-        vals = sorted([str(x).strip() for x in df[col].dropna().unique() if str(x).strip()])
-        return ["Todos"] + vals
-
-    sel_course = f1.selectbox("Curso", opts(students, "course"))
-    sel_teacher = f2.selectbox("Docente", opts(students, "teacher"))
-    sel_level = f3.selectbox("Nivel", opts(students, "level"))
+    course_opts = ["Todos"] + sorted([x for x in students.get("course", pd.Series(dtype=str)).dropna().unique() if str(x).strip()])
+    teacher_opts = ["Todos"] + sorted([x for x in students.get("teacher", pd.Series(dtype=str)).dropna().unique() if str(x).strip()])
+    level_opts = ["Todos"] + sorted([x for x in students.get("level", pd.Series(dtype=str)).dropna().unique() if str(x).strip()])
+    sel_course = f1.selectbox("Curso", course_opts)
+    sel_teacher = f2.selectbox("Docente", teacher_opts)
+    sel_level = f3.selectbox("Nivel", level_opts)
 
     filtered_students = students.copy()
-    if not filtered_students.empty:
-        if sel_course != "Todos": filtered_students = filtered_students[filtered_students["course"].astype(str) == sel_course]
-        if sel_teacher != "Todos": filtered_students = filtered_students[filtered_students["teacher"].astype(str) == sel_teacher]
-        if sel_level != "Todos": filtered_students = filtered_students[filtered_students["level"].astype(str) == sel_level]
-
-    allowed_ids = set(filtered_students["id"].dropna().astype(int).tolist()) if not filtered_students.empty and "id" in filtered_students.columns else set()
-
-    filtered_logs = logs.copy()
-    if allowed_ids and not filtered_logs.empty and "user_id" in filtered_logs.columns:
-        filtered_logs = filtered_logs[filtered_logs["user_id"].isin(allowed_ids)]
-
-    filtered_quizzes = quizzes.copy()
-    if allowed_ids and not filtered_quizzes.empty and "user_id" in filtered_quizzes.columns:
-        filtered_quizzes = filtered_quizzes[filtered_quizzes["user_id"].isin(allowed_ids)]
+    if sel_course != "Todos": filtered_students = filtered_students[filtered_students["course"] == sel_course]
+    if sel_teacher != "Todos": filtered_students = filtered_students[filtered_students["teacher"] == sel_teacher]
+    if sel_level != "Todos": filtered_students = filtered_students[filtered_students["level"] == sel_level]
 
     st.markdown(f"<div class='teacher-card'><b>Vista seleccionada en menú:</b> {teacher_page}</div>", unsafe_allow_html=True)
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard docente PRO", "📥 Botones de exportación", "👤 Seguimiento individual", "🧾 Datos completos"])
 
-    if teacher_page == "📊 Dashboard docente PRO":
+    with tab1:
         st.markdown("<div class='teacher-card'><h3>📊 Dashboard docente PRO</h3><p class='small'>Resumen visual del desempeño, participación, cursos y resultados de pruebas.</p></div>", unsafe_allow_html=True)
-
-        user_logs = filtered_logs[filtered_logs["role"].astype(str).str.lower().eq("user")].copy() if not filtered_logs.empty and "role" in filtered_logs.columns else pd.DataFrame()
-
-        if user_logs.empty:
-            st.info("Aún no existen consultas registradas con los filtros seleccionados.")
+        c1, c2 = st.columns(2)
+        if not logs.empty:
+            user_logs = logs[logs["role"] == "user"].copy()
+            c1.plotly_chart(px.histogram(user_logs, x="topic", color="course", title="Consultas por área y curso"), use_container_width=True)
+            c2.plotly_chart(px.histogram(user_logs, x="username", title="Participación por estudiante"), use_container_width=True)
         else:
-            c1, c2 = st.columns(2, gap="large")
-            fig1 = px.histogram(user_logs, x="topic", color="course" if "course" in user_logs.columns else None, title="Consultas por área y curso")
-            fig1.update_layout(height=430, margin={"r":10,"t":60,"l":10,"b":80})
-            c1.plotly_chart(fig1, use_container_width=True)
+            st.info("Aún no existen interacciones registradas.")
+        if not quizzes.empty:
+            st.plotly_chart(px.box(quizzes, x="topic", y="score", color="course", title="Distribución de puntajes por tema"), use_container_width=True)
 
-            fig2 = px.histogram(user_logs, x="username" if "username" in user_logs.columns else "user_id", title="Participación por estudiante")
-            fig2.update_layout(height=430, margin={"r":10,"t":60,"l":10,"b":100})
-            c2.plotly_chart(fig2, use_container_width=True)
+        render_teacher_gps_heatmap(logs, filtered_students)
 
-        if not filtered_quizzes.empty and "score" in filtered_quizzes.columns:
-            fig3 = px.box(filtered_quizzes, x="topic", y="score", color="course" if "course" in filtered_quizzes.columns else None, title="Distribución de puntajes por tema")
-            fig3.update_layout(height=430, margin={"r":10,"t":60,"l":10,"b":80})
-            st.plotly_chart(fig3, use_container_width=True)
-        else:
-            st.info("Aún no existen pruebas registradas con los filtros seleccionados.")
-
-        render_teacher_gps_heatmap(filtered_logs, filtered_students)
-        return
-
-    if teacher_page == "📥 Exportación":
+    with tab2:
         st.markdown("""
         <div class='teacher-card'>
             <h3>📥 Exportación por estudiante</h3>
-            <p class='small'>Botones independientes para exportar CSV, Word y PDF con las consultas reales del estudiante.</p>
+            <p class='small'>Aquí tienes un botón independiente para cada formato: CSV, Word y PDF.</p>
         </div>
         """, unsafe_allow_html=True)
         if filtered_students.empty:
             st.warning("No hay estudiantes con los filtros seleccionados.")
-            return
+        else:
+            filtered_students = filtered_students.copy()
+            filtered_students["display"] = filtered_students.apply(lambda r: f"{r.get('username','')} · {r.get('first_names') or ''} {r.get('last_names') or ''} · {r.get('course') or ''}", axis=1)
+            selected_label = st.selectbox("Selecciona estudiante para exportar", filtered_students["display"].tolist(), key="export_student_select")
+            selected_id = int(filtered_students.loc[filtered_students["display"] == selected_label, "id"].iloc[0])
+            profile, report_df = build_student_summary(selected_id)
+            st.markdown(
+                f"<div class='teacher-card'><h3>{profile.get('first_names') or ''} {profile.get('last_names') or profile.get('username')}</h3>"
+                f"<span class='teacher-chip'>Usuario: {profile.get('username') or ''}</span>"
+                f"<span class='teacher-chip'>Curso: {profile.get('course') or 'Sin curso'}</span>"
+                f"<span class='teacher-chip'>Docente: {profile.get('teacher') or 'Sin docente'}</span>"
+                f"<span class='teacher-chip'>Nivel: {profile.get('level') or 'Sin nivel'}</span>"
+                f"<span class='teacher-chip'>Registros: {len(report_df)}</span></div>",
+                unsafe_allow_html=True,
+            )
+            b1, b2, b3 = st.columns(3)
+            b1.download_button("📊 Exportar CSV", report_df.to_csv(index=False).encode("utf-8-sig"), f"consultas_{profile.get('username','estudiante')}_{selected_id}.csv", "text/csv", use_container_width=True)
+            try:
+                b2.download_button("📝 Exportar Word", export_student_docx(selected_id), f"reporte_{profile.get('username','estudiante')}_{selected_id}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+            except Exception as e:
+                b2.warning(f"Word no disponible: {e}")
+            try:
+                b3.download_button("📄 Exportar PDF", export_student_pdf(selected_id), f"reporte_{profile.get('username','estudiante')}_{selected_id}.pdf", "application/pdf", use_container_width=True)
+            except Exception as e:
+                b3.warning(f"PDF no disponible: {e}")
+            st.markdown("<div class='teacher-card'><h3>Vista previa de consultas del estudiante</h3></div>", unsafe_allow_html=True)
+            st.dataframe(report_df, use_container_width=True, height=340)
 
-        filtered_students = filtered_students.copy()
-        filtered_students["display"] = filtered_students.apply(lambda r: f"{r.get('username','')} · {r.get('first_names') or ''} {r.get('last_names') or ''} · {r.get('course') or ''}", axis=1)
-        selected_label = st.selectbox("Selecciona estudiante para exportar", filtered_students["display"].tolist(), key="export_student_select")
-        selected_id = int(filtered_students.loc[filtered_students["display"] == selected_label, "id"].iloc[0])
-        profile, report_df = build_student_summary(selected_id)
-
-        st.markdown(
-            f"<div class='teacher-card'><h3>{profile.get('first_names') or ''} {profile.get('last_names') or profile.get('username')}</h3>"
-            f"<span class='teacher-chip'>Usuario: {profile.get('username') or ''}</span>"
-            f"<span class='teacher-chip'>Curso: {profile.get('course') or 'Sin curso'}</span>"
-            f"<span class='teacher-chip'>Docente: {profile.get('teacher') or 'Sin docente'}</span>"
-            f"<span class='teacher-chip'>Nivel: {profile.get('level') or 'Sin nivel'}</span>"
-            f"<span class='teacher-chip'>Registros: {len(report_df)}</span></div>",
-            unsafe_allow_html=True,
-        )
-
-        if report_df.empty:
-            st.warning("Este estudiante no tiene consultas registradas. El archivo se generará con encabezados, pero sin filas.")
-        b1, b2, b3 = st.columns(3)
-        b1.download_button("📊 Exportar CSV", report_df.to_csv(index=False).encode("utf-8-sig"), f"consultas_{profile.get('username','estudiante')}_{selected_id}.csv", "text/csv", use_container_width=True)
-        try:
-            b2.download_button("📝 Exportar Word", export_student_docx(selected_id), f"reporte_{profile.get('username','estudiante')}_{selected_id}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
-        except Exception as e:
-            b2.warning(f"Word no disponible: {e}")
-        try:
-            b3.download_button("📄 Exportar PDF", export_student_pdf(selected_id), f"reporte_{profile.get('username','estudiante')}_{selected_id}.pdf", "application/pdf", use_container_width=True)
-        except Exception as e:
-            b3.warning(f"PDF no disponible: {e}")
-
-        st.markdown("<div class='teacher-card'><h3>Vista previa de consultas del estudiante</h3></div>", unsafe_allow_html=True)
-        st.dataframe(report_df, use_container_width=True, height=420)
-        return
-
-    if teacher_page == "👤 Seguimiento individual":
+    with tab3:
         st.markdown("<div class='teacher-card'><h3>👤 Seguimiento individual</h3><p class='small'>Revisa el comportamiento académico de cada estudiante antes de exportar.</p></div>", unsafe_allow_html=True)
         if filtered_students.empty:
             st.warning("No hay estudiantes con los filtros seleccionados.")
-            return
-
-        filtered_students = filtered_students.copy()
-        filtered_students["display"] = filtered_students.apply(lambda r: f"{r.get('username','')} · {r.get('first_names') or ''} {r.get('last_names') or ''} · {r.get('course') or ''}", axis=1)
-        selected_label = st.selectbox("Selecciona estudiante para seguimiento", filtered_students["display"].tolist(), key="follow_student_select")
-        selected_id = int(filtered_students.loc[filtered_students["display"] == selected_label, "id"].iloc[0])
-        profile, report_df = build_student_summary(selected_id)
-        st.markdown(
-            f"<div class='teacher-card'><h3>{profile.get('first_names') or ''} {profile.get('last_names') or profile.get('username')}</h3>"
-            f"<span class='teacher-chip'>Usuario: {profile.get('username') or ''}</span>"
-            f"<span class='teacher-chip'>Curso: {profile.get('course') or 'Sin curso'}</span>"
-            f"<span class='teacher-chip'>Nivel: {profile.get('level') or 'Sin nivel'}</span></div>",
-            unsafe_allow_html=True,
-        )
-        if report_df.empty:
-            st.info("Este estudiante aún no registra consultas.")
         else:
-            g1, g2 = st.columns(2, gap="large")
-            user_df = report_df[report_df['role'].astype(str).str.lower().eq('user')].copy()
-            if not user_df.empty:
-                fig_a = px.histogram(user_df, x='topic', title='Temas consultados')
-                fig_a.update_layout(height=420, margin={"r":10,"t":60,"l":10,"b":80})
-                g1.plotly_chart(fig_a, use_container_width=True)
-            fig_b = px.histogram(report_df, x='created_at', title='Actividad en el tiempo')
-            fig_b.update_layout(height=420, margin={"r":10,"t":60,"l":10,"b":80})
-            g2.plotly_chart(fig_b, use_container_width=True)
-            st.dataframe(report_df, use_container_width=True, height=380)
-        return
+            filtered_students = filtered_students.copy()
+            if "display" not in filtered_students.columns:
+                filtered_students["display"] = filtered_students.apply(lambda r: f"{r.get('username','')} · {r.get('first_names') or ''} {r.get('last_names') or ''} · {r.get('course') or ''}", axis=1)
+            selected_label = st.selectbox("Selecciona estudiante para seguimiento", filtered_students["display"].tolist(), key="follow_student_select")
+            selected_id = int(filtered_students.loc[filtered_students["display"] == selected_label, "id"].iloc[0])
+            profile, report_df = build_student_summary(selected_id)
+            st.markdown(
+                f"<div class='teacher-card'><h3>{profile.get('first_names') or ''} {profile.get('last_names') or profile.get('username')}</h3>"
+                f"<span class='teacher-chip'>Usuario: {profile.get('username') or ''}</span>"
+                f"<span class='teacher-chip'>Curso: {profile.get('course') or 'Sin curso'}</span>"
+                f"<span class='teacher-chip'>Nivel: {profile.get('level') or 'Sin nivel'}</span></div>",
+                unsafe_allow_html=True,
+            )
+            if report_df.empty:
+                st.info("Este estudiante aún no registra consultas.")
+            else:
+                g1, g2 = st.columns(2)
+                g1.plotly_chart(px.histogram(report_df[report_df['role']=='user'], x='topic', title='Temas consultados'), use_container_width=True)
+                g2.plotly_chart(px.histogram(report_df, x='created_at', title='Actividad en el tiempo'), use_container_width=True)
+                st.dataframe(report_df, use_container_width=True, height=320)
 
-    if teacher_page == "🧾 Datos completos":
-        st.markdown("<div class='teacher-card'><h3>🧾 Datos completos</h3><p class='small'>Tablas completas y descargas generales.</p></div>", unsafe_allow_html=True)
+    with tab4:
         st.subheader("Estudiantes")
-        st.dataframe(filtered_students.drop(columns=["display"], errors="ignore"), use_container_width=True, height=300)
+        st.dataframe(filtered_students.drop(columns=["display"], errors="ignore"), use_container_width=True)
         st.subheader("Trazabilidad de interacciones")
-        st.dataframe(filtered_logs, use_container_width=True, height=360)
+        st.dataframe(logs, use_container_width=True)
         loc_df = pd.DataFrame(get_location_events())
         st.subheader("Eventos GPS para mapas de calor")
         if not loc_df.empty:
-            st.dataframe(loc_df, use_container_width=True, height=300)
+            st.dataframe(loc_df, use_container_width=True)
             st.download_button("📍 CSV eventos GPS", loc_df.to_csv(index=False).encode('utf-8-sig'), "eventos_gps_bunsekichat.csv", "text/csv", use_container_width=True)
         else:
             st.info("Aún no hay eventos GPS registrados.")
         st.subheader("Pruebas y gamificación")
-        st.dataframe(filtered_quizzes, use_container_width=True, height=300)
+        st.dataframe(quizzes, use_container_width=True)
         x1, x2, x3 = st.columns(3)
-        x1.download_button("📊 CSV interacciones", filtered_logs.to_csv(index=False).encode('utf-8-sig'), "interacciones_bunsekichat.csv", "text/csv", use_container_width=True)
+        x1.download_button("📊 CSV interacciones", logs.to_csv(index=False).encode('utf-8-sig'), "interacciones_bunsekichat.csv", "text/csv", use_container_width=True)
         x2.download_button("👥 CSV estudiantes", filtered_students.drop(columns=["display"], errors="ignore").to_csv(index=False).encode('utf-8-sig'), "estudiantes_bunsekichat.csv", "text/csv", use_container_width=True)
-        x3.download_button("🎮 CSV pruebas", filtered_quizzes.to_csv(index=False).encode('utf-8-sig'), "pruebas_bunsekichat.csv", "text/csv", use_container_width=True)
-        return
+        x3.download_button("🎮 CSV pruebas", quizzes.to_csv(index=False).encode('utf-8-sig'), "pruebas_bunsekichat.csv", "text/csv", use_container_width=True)
 
-setup_database_once()
-session_guard()
 
-if 'user' not in st.session_state:
-    login_page()
+setup_database_once(); session_guard()
+if 'user' not in st.session_state: login_page()
 else:
-    u = st.session_state.user
-
-    # =========================================
-    # GPS GLOBAL AUTOMÁTICO
-    # =========================================
-    capture_browser_gps(
-        uid=u['id'],
-        page='global',
-        event_type='app_open',
-        show_status=False
-    )
-
-    if u.get('role') in ['admin', 'teacher', 'docente']:
-        admin_page(u)
-    else:
-        student_page(u)
+    u=st.session_state.user
+    admin_page(u) if u.get('role') in ['admin','teacher','docente'] else student_page(u)
