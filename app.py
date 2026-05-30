@@ -788,6 +788,85 @@ section.main div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:c
 </style>
 """, unsafe_allow_html=True)
 
+
+
+# =========================================================
+# FIX UI Q1/Q2: RESPUESTAS DE TEST COMO SELECTBOX LEGIBLE
+# Evita heredar colores oscuros de radios anteriores y mejora visual en móvil.
+# =========================================================
+st.markdown("""
+<style>
+.exam-answer-select{
+    background:#ffffff !important;
+    border:1px solid #d1d5db !important;
+    border-radius:16px !important;
+    padding:10px 12px !important;
+    margin:8px 0 18px !important;
+    box-shadow:0 8px 18px rgba(15,23,42,.06) !important;
+}
+.exam-answer-select label,
+.exam-answer-select label *,
+.exam-answer-select div,
+.exam-answer-select span,
+.exam-answer-select p{
+    color:#111827 !important;
+    -webkit-text-fill-color:#111827 !important;
+    opacity:1 !important;
+}
+.exam-answer-select [data-baseweb="select"],
+.exam-answer-select [data-baseweb="select"] > div{
+    background:#f8fafc !important;
+    color:#111827 !important;
+    border-radius:12px !important;
+}
+.exam-answer-select [data-baseweb="select"] *{
+    color:#111827 !important;
+    -webkit-text-fill-color:#111827 !important;
+}
+.exam-answer-help{
+    font-size:.82rem;
+    color:#475569 !important;
+    margin:0 0 6px 2px;
+    font-weight:700;
+}
+.research-question-card, .quiz-question-card{
+    background:#ffffff !important;
+    color:#111827 !important;
+    border:1px solid #e5e7eb !important;
+    border-left:6px solid #d4147f !important;
+    border-radius:16px !important;
+    padding:14px 16px !important;
+    margin:18px 0 8px !important;
+    box-shadow:0 8px 18px rgba(15,23,42,.06) !important;
+}
+.research-question-card strong, .quiz-question-card strong{
+    color:#6f0f49 !important;
+    -webkit-text-fill-color:#6f0f49 !important;
+}
+/* Menú desplegable abierto */
+div[data-baseweb="popover"] div,
+div[data-baseweb="menu"] div,
+ul[role="listbox"] li{
+    color:#111827 !important;
+    -webkit-text-fill-color:#111827 !important;
+    background:#ffffff !important;
+}
+ul[role="listbox"] li:hover,
+div[data-baseweb="menu"] div:hover{
+    background:#fff7fb !important;
+}
+@media(max-width:760px){
+    .research-question-card, .quiz-question-card{
+        padding:12px 13px !important;
+        font-size:.92rem !important;
+    }
+    .exam-answer-select{
+        padding:9px 10px !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
 def bunseki_logo_html(title="BunsekiChat", subtitle="Tutor personalizado de matemáticas universitarias"):
     return (
         "<div class='bunseki-brand'>"
@@ -1668,17 +1747,23 @@ def render_research_test_form(uid: int, prof: dict, test_type: str):
                 f"<div class='research-question-card'><strong>{i+1}. {item['question']}</strong></div>",
                 unsafe_allow_html=True,
             )
-            answers[str(i)] = st.radio(
-                "Selecciona una opción",
-                item["options"],
+            st.markdown("<div class='exam-answer-select'><div class='exam-answer-help'>Selecciona una respuesta:</div>", unsafe_allow_html=True)
+            answers[str(i)] = st.selectbox(
+                "Respuesta",
+                ["-- Seleccione una opción --"] + list(item["options"]),
                 key=f"{test_type}_{subject}_{st.session_state[seed_key]}_{i}",
                 label_visibility="collapsed",
             )
+            st.markdown("</div>", unsafe_allow_html=True)
         submitted = st.form_submit_button(f"Guardar {label} de {subject}", use_container_width=True)
         if submitted:
-            score, correct, total = research_save_test(uid, test_type, subject, answers, questions=questions)
-            st.success(f"{label} de {subject} guardado: {correct}/{total} respuestas correctas ({score:.2f}%).")
-            st.rerun()
+            pending = [k for k, v in answers.items() if not v or str(v).startswith("-- Seleccione")]
+            if pending:
+                st.warning("Por favor responde todas las preguntas antes de guardar la prueba.")
+            else:
+                score, correct, total = research_save_test(uid, test_type, subject, answers, questions=questions)
+                st.success(f"{label} de {subject} guardado: {correct}/{total} respuestas correctas ({score:.2f}%).")
+                st.rerun()
 
 def render_research_survey(uid: int, survey_type: str):
     label = "Encuesta inicial" if survey_type == "initial" else "Encuesta final"
@@ -2275,13 +2360,19 @@ def student_page(user):
                     f"<div class='quiz-question-card'><strong>{i+1}. {text}</strong></div>",
                     unsafe_allow_html=True,
                 )
-                answers[str(i)] = st.radio(
-                    "Selecciona una opción",
-                    opts,
+                st.markdown("<div class='exam-answer-select'><div class='exam-answer-help'>Selecciona una respuesta:</div>", unsafe_allow_html=True)
+                answers[str(i)] = st.selectbox(
+                    "Respuesta",
+                    ["-- Seleccione una opción --"] + list(opts),
                     key=f"q_{quiz_subject}_{st.session_state[adaptive_seed_key]}_{i}",
                     label_visibility="collapsed",
                 )
+                st.markdown("</div>", unsafe_allow_html=True)
             if st.form_submit_button("Calificar prueba"):
+                pending = [k for k, v in answers.items() if not v or str(v).startswith("-- Seleccione")]
+                if pending:
+                    st.warning("Por favor responde todas las preguntas antes de calificar la prueba.")
+                    st.stop()
                 total = max(1, len(quiz_items))
                 score = sum(
                     1 for i, (q_topic, qdata) in enumerate(quiz_items)
