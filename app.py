@@ -1,4 +1,4 @@
-import os, re, json, hashlib, time, threading
+import os, re, json, hashlib, time, threading, random
 from datetime import datetime, date, timedelta
 from io import BytesIO
 
@@ -638,6 +638,156 @@ div[data-testid="stDownloadButton"] button:focus{
 """, unsafe_allow_html=True)
 
 
+# =========================================================
+# FIX VISUAL SELECTIVO: TESTS Y ENCUESTAS LEGIBLES
+# =========================================================
+st.markdown("""
+<style>
+/* Aplica solo al área principal, no al menú lateral */
+section.main div[data-testid="stRadio"] label,
+section.main div[data-testid="stRadio"] label *,
+section.main div[role="radiogroup"] label,
+section.main div[role="radiogroup"] label *{
+    color:#111827 !important;
+    -webkit-text-fill-color:#111827 !important;
+    font-weight:700 !important;
+}
+
+section.main div[role="radiogroup"] label{
+    background:#ffffff !important;
+    border:1px solid #cbd5e1 !important;
+    border-radius:14px !important;
+    padding:10px 12px !important;
+    margin:6px 0 !important;
+    box-shadow:0 4px 12px rgba(15,23,42,.05) !important;
+}
+
+section.main div[role="radiogroup"] label:hover{
+    background:#fff7fb !important;
+    border-color:#d4147f !important;
+}
+
+section.main div[data-testid="stSlider"] label,
+section.main div[data-testid="stSlider"] label *,
+section.main div[data-testid="stSlider"] p,
+section.main div[data-testid="stSlider"] span{
+    color:#111827 !important;
+    -webkit-text-fill-color:#111827 !important;
+}
+
+.research-question-card{
+    background:#ffffff;
+    border:1px solid #e5e7eb;
+    border-radius:16px;
+    padding:14px 16px;
+    margin:14px 0 8px;
+    color:#111827;
+    box-shadow:0 8px 18px rgba(15,23,42,.05);
+}
+.research-question-card strong{color:#6f0f49;}
+.research-subject-note{
+    background:#f8fafc;
+    border:1px solid #cbd5e1;
+    color:#111827;
+    border-radius:14px;
+    padding:12px 14px;
+    margin:10px 0 14px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+# =========================================================
+# FIX DEFINITIVO FRONTEND: RADIOS/TESTS/ENCUESTAS LEGIBLES
+# Este bloque se carga al final para sobrescribir estilos oscuros previos.
+# =========================================================
+st.markdown("""
+<style>
+/* Limpia cualquier fondo oscuro heredado en opciones del área principal */
+section.main div[data-testid="stRadio"],
+section.main div[data-testid="stRadio"] *,
+section.main div[role="radiogroup"],
+section.main div[role="radiogroup"] *,
+section.main div[data-testid="stSlider"],
+section.main div[data-testid="stSlider"] *{
+    color:#111827 !important;
+    -webkit-text-fill-color:#111827 !important;
+    text-shadow:none !important;
+}
+
+/* Tarjeta de cada opción */
+section.main div[data-testid="stRadio"] div[role="radiogroup"] label{
+    display:flex !important;
+    align-items:center !important;
+    width:100% !important;
+    min-height:42px !important;
+    background:#ffffff !important;
+    background-color:#ffffff !important;
+    border:1.5px solid #cbd5e1 !important;
+    border-radius:14px !important;
+    padding:10px 12px !important;
+    margin:7px 0 !important;
+    box-shadow:0 5px 14px rgba(15,23,42,.06) !important;
+}
+
+/* Quita fondos oscuros internos de BaseWeb/Streamlit */
+section.main div[data-testid="stRadio"] div[role="radiogroup"] label > div,
+section.main div[data-testid="stRadio"] div[role="radiogroup"] label > div *,
+section.main div[data-testid="stRadio"] div[role="radiogroup"] label p,
+section.main div[data-testid="stRadio"] div[role="radiogroup"] label span{
+    background:transparent !important;
+    background-color:transparent !important;
+    color:#111827 !important;
+    -webkit-text-fill-color:#111827 !important;
+    font-weight:700 !important;
+    opacity:1 !important;
+}
+
+/* Hover y selección legibles */
+section.main div[data-testid="stRadio"] div[role="radiogroup"] label:hover{
+    background:#fff7fb !important;
+    background-color:#fff7fb !important;
+    border-color:#d4147f !important;
+}
+section.main div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked){
+    background:#ffe4f2 !important;
+    background-color:#ffe4f2 !important;
+    border:2px solid #d4147f !important;
+}
+section.main div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) p,
+section.main div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) span{
+    color:#6f0f49 !important;
+    -webkit-text-fill-color:#6f0f49 !important;
+    font-weight:900 !important;
+}
+
+/* Preguntas del test como tarjetas claras */
+.research-question-card,
+.quiz-question-card{
+    background:#ffffff !important;
+    border:1px solid #e5e7eb !important;
+    border-radius:16px !important;
+    padding:14px 16px !important;
+    margin:16px 0 8px !important;
+    color:#111827 !important;
+    box-shadow:0 8px 18px rgba(15,23,42,.05) !important;
+}
+.research-question-card strong,
+.quiz-question-card strong{
+    color:#6f0f49 !important;
+}
+.research-subject-note{
+    background:#f8fafc !important;
+    border:1px solid #cbd5e1 !important;
+    color:#111827 !important;
+    border-radius:14px !important;
+    padding:12px 14px !important;
+    margin:10px 0 14px !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 def bunseki_logo_html(title="BunsekiChat", subtitle="Tutor personalizado de matemáticas universitarias"):
     return (
         "<div class='bunseki-brand'>"
@@ -1189,25 +1339,18 @@ ADAPTIVE_QUIZ_BANK = {
 }
 
 def adaptive_quiz_for_user(uid, current_topic):
-    """Devuelve 10 preguntas vinculadas al historial del estudiante."""
-    rows = interactions(uid)
-    user_rows = [r for r in rows if r.get("role") == "user"]
-    topic_counts = {}
-    for r in user_rows:
-        t = r.get("topic") or current_topic
-        topic_counts[t] = topic_counts.get(t, 0) + 1
-    ranked_topics = sorted(topic_counts, key=topic_counts.get, reverse=True)
-    if current_topic not in ranked_topics:
-        ranked_topics.append(current_topic)
+    """Devuelve 10 preguntas de la materia seleccionada en el panel lateral.
+    Mantiene el enfoque adaptativo usando la materia actual como base, para evitar mezclar áreas.
+    """
     selected = []
     used = set()
-    for t in ranked_topics:
-        for q in ADAPTIVE_QUIZ_BANK.get(t, []):
-            if q[0] not in used:
-                selected.append((t, q))
-                used.add(q[0])
-            if len(selected) >= 10:
-                return selected
+    for q in ADAPTIVE_QUIZ_BANK.get(current_topic, []):
+        if q[0] not in used:
+            selected.append((current_topic, q))
+            used.add(q[0])
+        if len(selected) >= 10:
+            return selected
+    # respaldo: si una materia no tuviera suficientes preguntas, completa sin duplicar
     for t, bank in ADAPTIVE_QUIZ_BANK.items():
         for q in bank:
             if q[0] not in used:
@@ -1288,6 +1431,18 @@ RESEARCH_TEST_BANK = {
         ("La hipótesis nula suele representar:", ["ausencia de efecto o diferencia", "la conclusión final", "el dato mayor", "la variable dependiente"], 0),
         ("Una muestra representativa busca:", ["reflejar características de la población", "ser siempre pequeña", "evitar variabilidad", "ser idéntica en todos los casos"], 0),
     ],
+    "Cálculo integral": [
+        ("La integral indefinida representa:", ["familia de antiderivadas", "solo pendiente", "valor máximo", "matriz inversa"], 0),
+        ("La integral definida puede interpretarse como:", ["área neta acumulada", "derivada instantánea", "desviación estándar", "rango matricial"], 0),
+        ("La integral de 2x dx es:", ["x² + C", "2 + C", "ln(x) + C", "2x² + C"], 0),
+        ("La constante C aparece principalmente en:", ["integrales indefinidas", "límites laterales", "determinantes", "probabilidades"], 0),
+        ("El teorema fundamental del cálculo relaciona:", ["derivadas e integrales", "matrices y vectores", "media y moda", "probabilidad y frecuencia"], 0),
+        ("La técnica de sustitución se usa cuando:", ["hay composición de funciones", "solo hay constantes", "no existe variable", "se calcula una moda"], 0),
+        ("La integral de cos(x) dx es:", ["sen(x)+C", "-sen(x)+C", "tan(x)+C", "-cos(x)+C"], 0),
+        ("La integral de 1/x dx es:", ["ln|x|+C", "x²+C", "e^x+C", "1/x²+C"], 0),
+        ("En integración por partes se utiliza:", ["∫u dv = uv - ∫v du", "a²+b²=c²", "y=mx+b", "det(A)=ad-bc"], 0),
+        ("Una integral impropia puede aparecer cuando:", ["el intervalo es infinito o hay discontinuidad", "solo hay números enteros", "la función es lineal", "la matriz es identidad"], 0),
+    ],
 }
 
 def research_has_consent(uid: int) -> bool:
@@ -1299,18 +1454,44 @@ def research_save_consent(uid: int):
         execute("INSERT INTO research_consents(student_id,accepted,consent_text,accepted_at) VALUES(%s,%s,%s,%s)",
                 (uid, True, CONSENT_TEXT, now()))
 
-def research_get_test(uid: int, test_type: str):
+def research_get_test(uid: int, test_type: str, course: str | None = None):
+    """Obtiene el último pretest/postest del estudiante.
+    Si se indica course, busca la prueba correspondiente a esa materia.
+    """
+    if course:
+        return fetchone(
+            "SELECT * FROM research_tests WHERE student_id=%s AND test_type=%s AND course=%s ORDER BY id DESC LIMIT 1",
+            (uid, test_type, course),
+        )
     return fetchone("SELECT * FROM research_tests WHERE student_id=%s AND test_type=%s ORDER BY id DESC LIMIT 1", (uid, test_type))
 
-def research_get_questions():
+def research_get_questions(area: str | None = None, seed: int | None = None, shuffle_options: bool = True):
+    """Devuelve preguntas de investigación por materia.
+    - Si se indica area, filtra solo esa materia.
+    - Usa seed para variar el orden sin romper la corrección.
+    - Mezcla opciones y recalcula el índice correcto.
+    """
+    rng = random.Random(seed) if seed is not None else random.Random()
     questions = []
-    for area, items in RESEARCH_TEST_BANK.items():
+    banks = {area: RESEARCH_TEST_BANK.get(area, [])} if area else RESEARCH_TEST_BANK
+    for area_name, items in banks.items():
         for q, opts, correct in items:
-            questions.append({"area": area, "question": q, "options": opts, "correct": correct})
+            opts_list = list(opts)
+            correct_text = opts_list[correct]
+            if shuffle_options:
+                rng.shuffle(opts_list)
+            questions.append({
+                "area": area_name,
+                "question": q,
+                "options": opts_list,
+                "correct": opts_list.index(correct_text),
+            })
+    rng.shuffle(questions)
     return questions
 
-def research_save_test(uid: int, test_type: str, course: str, answers: dict):
-    questions = research_get_questions()
+def research_save_test(uid: int, test_type: str, course: str, answers: dict, questions: list | None = None):
+    """Guarda pretest/postest usando exactamente las preguntas mostradas al estudiante."""
+    questions = questions or research_get_questions(course, seed=0, shuffle_options=False)
     total = len(questions)
     correct = 0
     detailed = []
@@ -1329,7 +1510,7 @@ def research_save_test(uid: int, test_type: str, course: str, answers: dict):
     with DB_LOCK:
         execute("""INSERT INTO research_tests(student_id,test_type,course,score,total_questions,correct_answers,answers_json,started_at,created_at)
                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (uid, test_type, course, score, total, correct, json.dumps(detailed, ensure_ascii=False), st.session_state.get(f"{test_type}_started_at", now()), now()))
+                (uid, test_type, course, score, total, correct, json.dumps(detailed, ensure_ascii=False), st.session_state.get(f"{test_type}_{course}_started_at", now()), now()))
     return score, correct, total
 
 def research_survey_completed(uid: int, survey_type: str) -> bool:
@@ -1397,14 +1578,15 @@ def get_research_tables():
 
 def build_learning_gain_df() -> pd.DataFrame:
     tests = _rows_to_df(fetchall("""
-        SELECT student_id, test_type, score, correct_answers, total_questions, created_at
+        SELECT student_id, test_type, course, score, correct_answers, total_questions, created_at
         FROM research_tests
         ORDER BY created_at ASC
     """))
     if tests.empty:
-        return pd.DataFrame(columns=["student_id", "pretest", "posttest", "gain", "gain_percent"])
-    latest = tests.sort_values("created_at").groupby(["student_id", "test_type"], as_index=False).tail(1)
-    pivot = latest.pivot(index="student_id", columns="test_type", values="score").reset_index()
+        return pd.DataFrame(columns=["student_id", "course", "pretest", "posttest", "gain", "gain_percent"])
+    tests["course"] = tests["course"].fillna("Sin materia")
+    latest = tests.sort_values("created_at").groupby(["student_id", "course", "test_type"], as_index=False).tail(1)
+    pivot = latest.pivot(index=["student_id", "course"], columns="test_type", values="score").reset_index()
     if "pretest" not in pivot.columns: pivot["pretest"] = None
     if "posttest" not in pivot.columns: pivot["posttest"] = None
     pivot["gain"] = pd.to_numeric(pivot["posttest"], errors="coerce") - pd.to_numeric(pivot["pretest"], errors="coerce")
@@ -1412,16 +1594,18 @@ def build_learning_gain_df() -> pd.DataFrame:
 
     usage = _rows_to_df(fetchall("""
         SELECT user_id AS student_id,
+               topic AS course,
                COUNT(*) FILTER (WHERE role='user') AS questions_count,
                COUNT(DISTINCT DATE(created_at::timestamp)) AS active_days,
                AVG(latency_ms) AS avg_latency_ms
         FROM interactions
-        GROUP BY user_id
+        GROUP BY user_id, topic
     """))
     if not usage.empty:
-        pivot = pivot.merge(usage, on="student_id", how="left")
+        usage["course"] = usage["course"].fillna("Sin materia")
+        pivot = pivot.merge(usage, on=["student_id", "course"], how="left")
     profiles = _rows_to_df(fetchall("""
-        SELECT u.id AS student_id, u.username, p.first_names, p.last_names, p.course, p.teacher, p.level
+        SELECT u.id AS student_id, u.username, p.first_names, p.last_names, p.course AS profile_course, p.teacher, p.level
         FROM users u LEFT JOIN profiles p ON p.user_id=u.id
     """))
     if not profiles.empty:
@@ -1429,26 +1613,71 @@ def build_learning_gain_df() -> pd.DataFrame:
     return pivot
 
 def render_research_test_form(uid: int, prof: dict, test_type: str):
-    existing = research_get_test(uid, test_type)
     label = "Pretest diagnóstico" if test_type == "pretest" else "Postest final"
-    st.markdown(f"<div class='teacher-card'><h3>{label}</h3><p class='small'>Instrumento de 30 preguntas: Cálculo, Álgebra Lineal y Estadística.</p></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='teacher-card'><h3>{label}</h3><p class='small'>Selecciona una materia. El instrumento mostrará únicamente preguntas de esa área y las opciones se verán con contraste claro.</p></div>",
+        unsafe_allow_html=True,
+    )
+
+    available_subjects = list(RESEARCH_TEST_BANK.keys())
+    default_subject = prof.get("course") if prof.get("course") in available_subjects else available_subjects[0]
+    subject = st.selectbox(
+        "Materia a evaluar",
+        available_subjects,
+        index=available_subjects.index(default_subject),
+        key=f"{test_type}_research_subject",
+    )
+
+    st.markdown(
+        f"<div class='research-subject-note'><b>Materia seleccionada:</b> {subject}<br>"
+        f"El {label.lower()} se guardará de forma independiente para esta materia.</div>",
+        unsafe_allow_html=True,
+    )
+
+    existing = research_get_test(uid, test_type, subject)
     if existing:
-        st.success(f"{label} ya registrado. Puntaje: {float(existing.get('score') or 0):.2f}%")
+        st.success(f"{label} de {subject} ya registrado. Puntaje: {float(existing.get('score') or 0):.2f}%")
+        st.caption("Para conservar el rigor científico, cada estudiante debe registrar una sola prueba por materia.")
         return
 
-    if f"{test_type}_started_at" not in st.session_state:
-        st.session_state[f"{test_type}_started_at"] = now()
+    if test_type == "posttest" and not research_get_test(uid, "pretest", subject):
+        st.warning(f"Primero completa el pretest de {subject} para conservar el rigor científico del estudio.")
+        return
 
-    questions = research_get_questions()
-    with st.form(f"{test_type}_research_form"):
+    seed_key = f"{test_type}_{subject}_question_seed"
+    question_key = f"{test_type}_{subject}_questions"
+    if seed_key not in st.session_state:
+        st.session_state[seed_key] = int(time.time() * 1000) % 10_000_000
+    if st.button(f"Generar nueva versión de preguntas para {subject}", key=f"refresh_{test_type}_{subject}", use_container_width=True):
+        st.session_state[seed_key] = int(time.time() * 1000) % 10_000_000
+        st.session_state.pop(question_key, None)
+        st.rerun()
+
+    if f"{test_type}_{subject}_started_at" not in st.session_state:
+        st.session_state[f"{test_type}_{subject}_started_at"] = now()
+
+    if question_key not in st.session_state:
+        st.session_state[question_key] = research_get_questions(subject, seed=st.session_state[seed_key], shuffle_options=True)
+
+    questions = st.session_state[question_key]
+
+    with st.form(f"{test_type}_{subject}_research_form"):
         answers = {}
         for i, item in enumerate(questions):
-            st.markdown(f"**{i+1}. [{item['area']}] {item['question']}**")
-            answers[str(i)] = st.radio("Selecciona una opción", item["options"], key=f"{test_type}_{i}", label_visibility="collapsed")
-        submitted = st.form_submit_button(f"Guardar {label}", use_container_width=True)
+            st.markdown(
+                f"<div class='research-question-card'><strong>{i+1}. {item['question']}</strong></div>",
+                unsafe_allow_html=True,
+            )
+            answers[str(i)] = st.radio(
+                "Selecciona una opción",
+                item["options"],
+                key=f"{test_type}_{subject}_{st.session_state[seed_key]}_{i}",
+                label_visibility="collapsed",
+            )
+        submitted = st.form_submit_button(f"Guardar {label} de {subject}", use_container_width=True)
         if submitted:
-            score, correct, total = research_save_test(uid, test_type, prof.get("course") or "", answers)
-            st.success(f"{label} guardado: {correct}/{total} respuestas correctas ({score:.2f}%).")
+            score, correct, total = research_save_test(uid, test_type, subject, answers, questions=questions)
+            st.success(f"{label} de {subject} guardado: {correct}/{total} respuestas correctas ({score:.2f}%).")
             st.rerun()
 
 def render_research_survey(uid: int, survey_type: str):
@@ -1487,25 +1716,37 @@ def research_page(user, prof):
     with tabs[1]:
         render_research_test_form(user["id"], prof, "pretest")
     with tabs[2]:
-        if not research_get_test(user["id"], "pretest"):
-            st.warning("Primero completa el pretest para que el diseño tenga rigor científico.")
-        else:
-            render_research_test_form(user["id"], prof, "posttest")
+        render_research_test_form(user["id"], prof, "posttest")
     with tabs[3]:
         if not research_get_test(user["id"], "posttest"):
-            st.warning("La encuesta final debe completarse después del postest.")
+            st.warning("La encuesta final debe completarse después de realizar al menos un postest.")
         else:
             render_research_survey(user["id"], "final")
     with tabs[4]:
-        pre = research_get_test(user["id"], "pretest")
-        post = research_get_test(user["id"], "posttest")
-        c1, c2, c3 = st.columns(3)
-        pre_score = float(pre.get("score") or 0) if pre else 0
-        post_score = float(post.get("score") or 0) if post else 0
-        c1.metric("Pretest", f"{pre_score:.1f}%")
-        c2.metric("Postest", f"{post_score:.1f}%")
-        c3.metric("Ganancia", f"{(post_score-pre_score):.1f} pts" if post else "Pendiente")
-        st.caption("Para el paper se analizará la ganancia de aprendizaje junto con frecuencia de uso, consultas y variables psicoeducativas.")
+        rows = fetchall("""
+            SELECT course, test_type, score, correct_answers, total_questions, created_at
+            FROM research_tests
+            WHERE student_id=%s
+            ORDER BY course, created_at
+        """, (user["id"],))
+        df_tests = pd.DataFrame(rows or [])
+        if df_tests.empty:
+            st.info("Aún no tienes pretest o postest registrados.")
+        else:
+            latest = df_tests.sort_values("created_at").groupby(["course", "test_type"], as_index=False).tail(1)
+            pivot = latest.pivot(index="course", columns="test_type", values="score").reset_index()
+            if "pretest" not in pivot.columns:
+                pivot["pretest"] = None
+            if "posttest" not in pivot.columns:
+                pivot["posttest"] = None
+            pivot["ganancia"] = pd.to_numeric(pivot["posttest"], errors="coerce") - pd.to_numeric(pivot["pretest"], errors="coerce")
+            st.dataframe(pivot, use_container_width=True)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Materias con pretest", int(pivot["pretest"].notna().sum()))
+            c2.metric("Materias con postest", int(pivot["posttest"].notna().sum()))
+            avg_gain = pd.to_numeric(pivot["ganancia"], errors="coerce").mean()
+            c3.metric("Ganancia promedio", "Pendiente" if pd.isna(avg_gain) else f"{avg_gain:.1f} pts")
+        st.caption("Para el paper se analizará la ganancia de aprendizaje por materia junto con frecuencia de uso, consultas y variables psicoeducativas.")
 
 def render_research_dashboard():
     st.markdown("<div class='teacher-card'><h3>🔬 Dashboard de investigación Q1/Q2</h3><p class='small'>Exporta datos anonimizables para SPSS, Jamovi, R o Python.</p></div>", unsafe_allow_html=True)
@@ -1528,6 +1769,22 @@ def render_research_dashboard():
                              hover_name="username" if "username" in numeric_gain.columns else None,
                              title="Relación entre uso del tutor y ganancia de aprendizaje")
             st.plotly_chart(fig, use_container_width=True)
+
+    if not gain_df.empty and "course" in gain_df.columns:
+        st.subheader("Resultados por materia")
+        subject_summary = (
+            gain_df.groupby("course", dropna=False)
+            .agg(
+                estudiantes=("student_id", "nunique"),
+                pretest_promedio=("pretest", "mean"),
+                postest_promedio=("posttest", "mean"),
+                ganancia_promedio=("gain", "mean"),
+            )
+            .reset_index()
+        )
+        for col in ["pretest_promedio", "postest_promedio", "ganancia_promedio"]:
+            subject_summary[col] = pd.to_numeric(subject_summary[col], errors="coerce").round(2)
+        st.dataframe(subject_summary, use_container_width=True, height=220)
 
     st.subheader("Exportaciones científicas")
     e1, e2, e3, e4 = st.columns(4)
@@ -1970,18 +2227,60 @@ def student_page(user):
             log_interaction(user['id'],'assistant',ans,topic,subtopic,level,model,ms,gps=gps_actual)
             st.rerun()
     with right:
-        quiz_items = adaptive_quiz_for_user(user['id'], topic)
+        available_quiz_subjects = list(ADAPTIVE_QUIZ_BANK.keys())
+        default_quiz_subject = topic if topic in available_quiz_subjects else available_quiz_subjects[0]
+        quiz_subject = st.selectbox(
+            "Materia para la prueba adaptativa",
+            available_quiz_subjects,
+            index=available_quiz_subjects.index(default_quiz_subject),
+            key="adaptive_quiz_subject",
+        )
+
+        adaptive_seed_key = f"adaptive_quiz_seed_{quiz_subject}"
+        adaptive_items_key = f"adaptive_quiz_items_{quiz_subject}"
+        if adaptive_seed_key not in st.session_state:
+            st.session_state[adaptive_seed_key] = int(time.time() * 1000) % 10_000_000
+
+        if st.button("Generar nueva prueba adaptativa", key=f"refresh_adaptive_{quiz_subject}", use_container_width=True):
+            st.session_state[adaptive_seed_key] = int(time.time() * 1000) % 10_000_000
+            st.session_state.pop(adaptive_items_key, None)
+            st.rerun()
+
+        if adaptive_items_key not in st.session_state:
+            base_items = adaptive_quiz_for_user(user['id'], quiz_subject)
+            rng = random.Random(st.session_state[adaptive_seed_key])
+            generated = []
+            for q_topic, qdata in base_items:
+                q_text, opts, correct_idx = qdata
+                opts_list = list(opts)
+                correct_text = opts_list[correct_idx]
+                rng.shuffle(opts_list)
+                generated.append((q_topic, (q_text, opts_list, opts_list.index(correct_text))))
+            rng.shuffle(generated)
+            st.session_state[adaptive_items_key] = generated[:10]
+
+        quiz_items = st.session_state[adaptive_items_key]
+
         st.markdown(
             "<div class='quiz-card-premium'><h3>🎮 Prueba adaptativa para subir de nivel</h3>"
-            "<p class='small'>10 preguntas según tu historial de consultas. Aprueba con 70% o más.</p>"
-            f"<span class='quiz-topic-chip'>Base actual: {topic}</span></div>",
+            "<p class='small'>10 preguntas de la materia seleccionada. Aprueba con 70% o más.</p>"
+            f"<span class='quiz-topic-chip'>Materia: {quiz_subject}</span></div>",
             unsafe_allow_html=True,
         )
-        with st.form("quiz"):
+        with st.form(f"quiz_{quiz_subject}_{st.session_state[adaptive_seed_key]}"):
             answers = {}
             for i, (q_topic, qdata) in enumerate(quiz_items):
                 text, opts, correct = qdata
-                answers[str(i)] = st.radio(f"{i+1}. [{q_topic}] {text}", opts, key=f"q{i}")
+                st.markdown(
+                    f"<div class='quiz-question-card'><strong>{i+1}. {text}</strong></div>",
+                    unsafe_allow_html=True,
+                )
+                answers[str(i)] = st.radio(
+                    "Selecciona una opción",
+                    opts,
+                    key=f"q_{quiz_subject}_{st.session_state[adaptive_seed_key]}_{i}",
+                    label_visibility="collapsed",
+                )
             if st.form_submit_button("Calificar prueba"):
                 total = max(1, len(quiz_items))
                 score = sum(
@@ -1995,9 +2294,9 @@ def student_page(user):
                     idx = min(LEVELS.index(old) + 1, len(LEVELS) - 1)
                     new = LEVELS[idx]
                     update_profile(user['id'], {'level': new})
-                gps_actual = capture_browser_gps(user['id'], page=page, topic=topic, subtopic=subtopic, event_type='quiz_submitted', show_status=False)
-                log_location_event(user['id'], 'quiz_submitted', page=page, topic=topic, subtopic=subtopic, gps=gps_actual)
-                save_quiz(user['id'], topic, old, new, score, passed, answers)
+                gps_actual = capture_browser_gps(user['id'], page=page, topic=quiz_subject, subtopic=subtopic, event_type='quiz_submitted', show_status=False)
+                log_location_event(user['id'], 'quiz_submitted', page=page, topic=quiz_subject, subtopic=subtopic, gps=gps_actual)
+                save_quiz(user['id'], quiz_subject, old, new, score, passed, answers)
                 st.success(f"Puntaje: {score:.0f}%. {'Subiste de nivel.' if passed else 'Sigue practicando.'}")
         df = pd.DataFrame(user_q)
         if not df.empty:
