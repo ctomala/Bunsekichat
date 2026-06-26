@@ -96,6 +96,7 @@ RESEARCH_TITLE = os.getenv(
     "Efectos de un Tutor Inteligente basado en Inteligencia Artificial Generativa sobre el Rendimiento Académico en Cálculo Diferencial en la Universidad de Guayaquil",
 )
 RESEARCH_QUESTION_COUNT = env_int("BUNSEKI_RESEARCH_QUESTION_COUNT", 20)
+RESEARCH_FOCUS_TOPIC = os.getenv("BUNSEKI_RESEARCH_FOCUS_TOPIC", "Aplicaciones de la derivada").strip() or "Aplicaciones de la derivada"
 RESEARCH_TEST_TYPES = {
     "adaptive": "Evaluación adaptativa",
     "pretest": "Pretest",
@@ -133,6 +134,33 @@ DIFFERENTIAL_CALCULUS_QUESTION_BANK = [
     {"question": "Si f''(x)<0 en un intervalo, la gráfica es:", "options": ["Cóncava hacia abajo", "Cóncava hacia arriba", "Siempre creciente", "Lineal horizontal"], "correct_answer": "Cóncava hacia abajo", "explanation": "La segunda derivada negativa indica concavidad hacia abajo.", "bloom_level": "Comprender", "topic": "Concavidad"},
     {"question": "Un máximo local suele identificarse cuando f'(x) cambia de:", "options": ["Positiva a negativa", "Negativa a positiva", "Cero a cero siempre", "No definida a positiva siempre"], "correct_answer": "Positiva a negativa", "explanation": "El cambio de crecimiento a decrecimiento indica máximo local.", "bloom_level": "Analizar", "topic": "Criterio de la primera derivada"},
     {"question": "Si f(x)=x^3, entonces f'(2) es:", "options": ["12", "6", "8", "3"], "correct_answer": "12", "explanation": "f'(x)=3x^2, por tanto f'(2)=3(4)=12.", "bloom_level": "Aplicar", "topic": "Derivadas"},
+]
+
+DERIVATIVE_APPLICATIONS_QUESTION_BANK = [
+    {"question": "Una empresa modela su costo con C(x)=0.02x^2+5x+120. ¿Qué representa C'(x)?", "options": ["El costo marginal de producir una unidad adicional", "El costo fijo total", "La utilidad máxima", "El precio promedio de venta"], "correct_answer": "El costo marginal de producir una unidad adicional", "explanation": "La derivada del costo mide la variación instantánea del costo respecto a la producción.", "bloom_level": "Comprender", "topic": "Aplicaciones de la derivada"},
+    {"question": "Si la posición de un móvil es s(t)=t^3-6t^2+9t, ¿qué se obtiene con s'(t)?", "options": ["La velocidad instantánea", "La aceleración promedio", "La distancia total siempre positiva", "El tiempo máximo"], "correct_answer": "La velocidad instantánea", "explanation": "La derivada de la posición respecto del tiempo es la velocidad instantánea.", "bloom_level": "Comprender", "topic": "Aplicaciones de la derivada"},
+    {"question": "Para maximizar el área de un rectángulo con perímetro fijo, el procedimiento correcto inicia con:", "options": ["Expresar el área en función de una sola variable", "Derivar el perímetro dos veces", "Igualar el área a cero", "Eliminar la restricción"], "correct_answer": "Expresar el área en función de una sola variable", "explanation": "Los problemas de optimización requieren formular la función objetivo usando la restricción.", "bloom_level": "Aplicar", "topic": "Optimización"},
+    {"question": "Si f'(x)>0 en un intervalo, entonces f en ese intervalo:", "options": ["Es creciente", "Es decreciente", "Tiene concavidad negativa necesariamente", "No es continua"], "correct_answer": "Es creciente", "explanation": "La derivada positiva indica aumento de la función.", "bloom_level": "Comprender", "topic": "Crecimiento y decrecimiento"},
+    {"question": "Si f'(x)<0 en un intervalo, entonces f en ese intervalo:", "options": ["Es decreciente", "Es creciente", "Tiene un máximo absoluto siempre", "No tiene pendiente"], "correct_answer": "Es decreciente", "explanation": "La derivada negativa indica disminución de la función.", "bloom_level": "Comprender", "topic": "Crecimiento y decrecimiento"},
+    {"question": "Un punto crítico de f se busca donde:", "options": ["f'(x)=0 o f'(x) no existe", "f(x)=1 siempre", "f''(x)>0 siempre", "x no pertenece al dominio"], "correct_answer": "f'(x)=0 o f'(x) no existe", "explanation": "Los puntos críticos son candidatos para extremos locales.", "bloom_level": "Recordar", "topic": "Puntos críticos"},
+    {"question": "Si f'(x) cambia de negativa a positiva en x=a, entonces en x=a hay:", "options": ["Un mínimo local", "Un máximo local", "Una asíntota vertical", "Una discontinuidad removible"], "correct_answer": "Un mínimo local", "explanation": "La función pasa de decrecer a crecer, por eso aparece un mínimo local.", "bloom_level": "Analizar", "topic": "Criterio de la primera derivada"},
+    {"question": "Si f'(x) cambia de positiva a negativa en x=a, entonces en x=a hay:", "options": ["Un máximo local", "Un mínimo local", "Una recta horizontal sin extremo", "Una raíz doble siempre"], "correct_answer": "Un máximo local", "explanation": "La función pasa de crecer a decrecer, indicando máximo local.", "bloom_level": "Analizar", "topic": "Criterio de la primera derivada"},
+    {"question": "Si f''(x)>0 en un intervalo, la gráfica de f es:", "options": ["Cóncava hacia arriba", "Cóncava hacia abajo", "Siempre decreciente", "Siempre constante"], "correct_answer": "Cóncava hacia arriba", "explanation": "La segunda derivada positiva indica concavidad hacia arriba.", "bloom_level": "Comprender", "topic": "Concavidad"},
+    {"question": "Si f''(x)<0 en un intervalo, la gráfica de f es:", "options": ["Cóncava hacia abajo", "Cóncava hacia arriba", "Siempre creciente", "Siempre lineal"], "correct_answer": "Cóncava hacia abajo", "explanation": "La segunda derivada negativa indica concavidad hacia abajo.", "bloom_level": "Comprender", "topic": "Concavidad"},
+    {"question": "Un punto de inflexión puede ocurrir donde:", "options": ["Cambia la concavidad", "La función siempre vale cero", "La derivada primera siempre es positiva", "La función no tiene dominio"], "correct_answer": "Cambia la concavidad", "explanation": "El punto de inflexión se asocia al cambio de concavidad.", "bloom_level": "Comprender", "topic": "Concavidad"},
+    {"question": "La pendiente de la recta tangente a y=f(x) en x=a se calcula con:", "options": ["f'(a)", "f(a)", "f''(a)+a", "a/f(a) siempre"], "correct_answer": "f'(a)", "explanation": "La derivada en el punto es la pendiente de la tangente.", "bloom_level": "Aplicar", "topic": "Recta tangente"},
+    {"question": "La ecuación de la recta tangente a f en x=a usa:", "options": ["y-f(a)=f'(a)(x-a)", "y=f'(x)+a", "y=a/x", "y=f(a)x^2"], "correct_answer": "y-f(a)=f'(a)(x-a)", "explanation": "Se usa la forma punto-pendiente con pendiente f'(a).", "bloom_level": "Aplicar", "topic": "Recta tangente"},
+    {"question": "En razones relacionadas, si el radio de un círculo cambia con el tiempo, para hallar dA/dt se usa:", "options": ["Derivación implícita respecto al tiempo", "Solo sustitución numérica sin derivar", "La regla de L'Hôpital", "La fórmula cuadrática"], "correct_answer": "Derivación implícita respecto al tiempo", "explanation": "Las razones relacionadas derivan variables dependientes del tiempo.", "bloom_level": "Aplicar", "topic": "Razones relacionadas"},
+    {"question": "Si A=πr^2 y dr/dt=3, entonces dA/dt es:", "options": ["2πr(3)", "πr^2(3)", "2π(3)", "r/3"], "correct_answer": "2πr(3)", "explanation": "Al derivar A=πr^2 respecto al tiempo se obtiene dA/dt=2πr dr/dt.", "bloom_level": "Aplicar", "topic": "Razones relacionadas"},
+    {"question": "Para resolver un problema de optimización, después de construir la función objetivo se debe:", "options": ["Derivar e igualar a cero para hallar candidatos", "Borrar la restricción", "Elegir el mayor número del enunciado", "Integrar siempre"], "correct_answer": "Derivar e igualar a cero para hallar candidatos", "explanation": "Los extremos se buscan en puntos críticos y extremos del dominio.", "bloom_level": "Aplicar", "topic": "Optimización"},
+    {"question": "Si el ingreso es R(x)=50x-0.1x^2, el ingreso marginal es:", "options": ["R'(x)=50-0.2x", "R'(x)=50x", "R'(x)=0.1x", "R'(x)=50+x^2"], "correct_answer": "R'(x)=50-0.2x", "explanation": "Se deriva término a término para obtener el cambio instantáneo del ingreso.", "bloom_level": "Aplicar", "topic": "Marginalidad"},
+    {"question": "Si U(x)=R(x)-C(x), para maximizar utilidad se analiza principalmente:", "options": ["U'(x)=0 y el comportamiento alrededor", "R(x)=0 únicamente", "C(x)>0 únicamente", "El valor de x más pequeño siempre"], "correct_answer": "U'(x)=0 y el comportamiento alrededor", "explanation": "Los máximos de utilidad se buscan con puntos críticos y criterios de extremo.", "bloom_level": "Analizar", "topic": "Optimización"},
+    {"question": "La aproximación lineal L(x)=f(a)+f'(a)(x-a) sirve para:", "options": ["Estimar valores cercanos a a", "Calcular áreas exactas", "Eliminar el dominio", "Hallar raíces complejas siempre"], "correct_answer": "Estimar valores cercanos a a", "explanation": "La linealización usa la tangente para aproximar la función cerca de un punto.", "bloom_level": "Comprender", "topic": "Aproximación lineal"},
+    {"question": "Si una función modela temperatura T(t), ¿qué interpreta T'(5)?", "options": ["La tasa instantánea de cambio de temperatura en t=5", "La temperatura total acumulada siempre", "El promedio de todas las temperaturas", "El valor mínimo de t"], "correct_answer": "La tasa instantánea de cambio de temperatura en t=5", "explanation": "La derivada mide la rapidez de cambio de la magnitud modelada.", "bloom_level": "Comprender", "topic": "Tasa de cambio"},
+    {"question": "En el contexto de demanda p(x), la derivada p'(x) representa:", "options": ["Cómo cambia el precio respecto a la cantidad", "La cantidad total vendida", "El costo fijo", "La utilidad máxima siempre"], "correct_answer": "Cómo cambia el precio respecto a la cantidad", "explanation": "La derivada interpreta sensibilidad o tasa de cambio de una variable respecto a otra.", "bloom_level": "Comprender", "topic": "Tasa de cambio"},
+    {"question": "Si f'(a)=0 y f''(a)>0, el criterio de la segunda derivada indica:", "options": ["Mínimo local", "Máximo local", "No hay extremo posible", "Asíntota horizontal"], "correct_answer": "Mínimo local", "explanation": "Segunda derivada positiva en un punto crítico indica concavidad hacia arriba y mínimo local.", "bloom_level": "Analizar", "topic": "Criterio de la segunda derivada"},
+    {"question": "Si f'(a)=0 y f''(a)<0, el criterio de la segunda derivada indica:", "options": ["Máximo local", "Mínimo local", "Punto no derivable", "Función lineal"], "correct_answer": "Máximo local", "explanation": "Segunda derivada negativa en un punto crítico indica concavidad hacia abajo y máximo local.", "bloom_level": "Analizar", "topic": "Criterio de la segunda derivada"},
+    {"question": "En un problema aplicado, la unidad de f'(x) se interpreta como:", "options": ["Unidades de salida por unidad de entrada", "Siempre metros cuadrados", "Siempre segundos", "No tiene unidades"], "correct_answer": "Unidades de salida por unidad de entrada", "explanation": "La derivada conserva significado dimensional como razón de cambio.", "bloom_level": "Comprender", "topic": "Interpretación de la derivada"},
 ]
 
 st.set_page_config(page_title=APP_NAME, page_icon="∑", layout="wide", initial_sidebar_state="expanded")
@@ -766,6 +794,37 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+/* Lectura clara de radios superiores y opciones de respuesta */
+div[data-testid="stRadio"] div[role="radiogroup"] label{
+    background:#ffffff !important;
+    border:1px solid #f1b8d4 !important;
+    border-radius:14px !important;
+    padding:8px 12px !important;
+    box-shadow:0 8px 18px rgba(31,41,55,.05) !important;
+}
+div[data-testid="stRadio"] div[role="radiogroup"] label *,
+div[data-testid="stRadio"] div[role="radiogroup"] label p,
+div[data-testid="stRadio"] div[role="radiogroup"] label span{
+    color:#111827 !important;
+    font-weight:850 !important;
+}
+div[data-testid="stRadio"] div[role="radiogroup"] label:hover{
+    background:#fff7fb !important;
+    border-color:#d4147f !important;
+}
+div[data-testid="stRadio"] div[role="radiogroup"] input:checked + div,
+div[data-testid="stRadio"] div[role="radiogroup"] [aria-checked="true"]{
+    background:#fce7f3 !important;
+    color:#9d0b5c !important;
+}
+div[data-testid="stRadio"] div[role="radiogroup"] [aria-checked="true"] *,
+div[data-testid="stRadio"] div[role="radiogroup"] input:checked + div *{
+    color:#9d0b5c !important;
+}
+</style>
+""", unsafe_allow_html=True)
 def bunseki_logo_html(title="BunsekiChat", subtitle="Tutor personalizado de matemáticas universitarias"):
     return (
         "<div class='bunseki-brand'>"
@@ -1879,6 +1938,9 @@ def quiz_type_label(quiz_type):
 def local_research_question_pool(subject):
     key = strip_accents(subject).lower()
     if "calculo diferencial" in key or "calculo" in key:
+        focus_key = strip_accents(RESEARCH_FOCUS_TOPIC).lower()
+        if "aplicaciones" in focus_key and "derivada" in focus_key:
+            return [dict(q) for q in DERIVATIVE_APPLICATIONS_QUESTION_BANK]
         return [dict(q) for q in DIFFERENTIAL_CALCULUS_QUESTION_BANK]
     return []
 
@@ -1992,10 +2054,13 @@ MODO INVESTIGACIÓN:
 - Tipo de instrumento: {quiz_type_label(quiz_type)}.
 - Título del estudio: {RESEARCH_TITLE}.
 - Materia: {assessment_context.get('subject') or 'Cálculo diferencial'}.
+- Tema específico obligatorio: {RESEARCH_FOCUS_TOPIC}.
 - Curso: {assessment_context.get('course_level') or ''}.
 - Paralelo: {assessment_context.get('parallel') or ''}.
 - Jornada: {assessment_context.get('shift') or ''}.
 - Genera exactamente {int(n_questions)} preguntas equivalentes en dificultad para comparar pretest y posttest.
+- Todas las preguntas deben evaluar aplicaciones de la derivada: tasas de cambio, recta tangente, optimización, crecimiento/decrecimiento, concavidad, marginalidad y razones relacionadas.
+- Evita preguntas puramente mecánicas de derivación sin contexto aplicado, salvo que sean necesarias dentro de un problema aplicado.
 - Si es pretest, evalúa saberes previos sin depender del historial de consultas.
 - Si es posttest, evalúa las mismas competencias con enunciados no idénticos al pretest.
 """
@@ -2143,6 +2208,113 @@ def grade_adaptive_quiz(quiz_id, answers: dict):
     return score, passed, weak_topics, recommendation
 
 
+def fallback_derivative_applications_lesson(weak_questions=None):
+    weak_questions = weak_questions or []
+    weak_block = ""
+    if weak_questions:
+        weak_block = "\n\n**Puntos a reforzar según el pretest**\n" + "\n".join([f"- {q}" for q in weak_questions[:5]])
+    return f"""
+**Clase IA de refuerzo: {RESEARCH_FOCUS_TOPIC}**
+
+**1. Idea central**
+La derivada permite medir cómo cambia una cantidad en un instante. En aplicaciones, no basta con derivar: hay que interpretar qué significa la derivada dentro del problema.
+
+**2. Tasas de cambio**
+Si una función representa posición, temperatura, costo, ingreso o área, su derivada representa la rapidez con la que cambia esa cantidad.
+Ejemplo: si `s(t)` es posición, entonces `s'(t)` es velocidad instantánea.
+
+**3. Recta tangente**
+La pendiente de la tangente en `x=a` es `f'(a)`. La ecuación se escribe:
+`y - f(a) = f'(a)(x-a)`.
+
+**4. Optimización**
+Para maximizar o minimizar:
+1. Define la función objetivo.
+2. Usa la restricción para dejar una sola variable.
+3. Deriva.
+4. Resuelve `f'(x)=0`.
+5. Verifica si es máximo o mínimo.
+
+**5. Crecimiento, decrecimiento y concavidad**
+Si `f'(x)>0`, la función crece. Si `f'(x)<0`, decrece.
+Si `f''(x)>0`, es cóncava hacia arriba. Si `f''(x)<0`, es cóncava hacia abajo.
+
+**6. Razones relacionadas**
+Cuando varias cantidades cambian con el tiempo, se deriva implícitamente respecto de `t`.
+Ejemplo: si `A=πr²`, entonces `dA/dt = 2πr dr/dt`.
+
+**7. Antes del posttest**
+Lee el enunciado, identifica variables, escribe la función, deriva e interpreta la respuesta con unidades.
+{weak_block}
+"""
+
+
+def generate_derivative_applications_lesson(uid, academic_context, pretest_quiz_id):
+    quiz, questions = load_adaptive_quiz(pretest_quiz_id)
+    weak_questions = [q.get("question", "") for q in questions if not q.get("is_correct")]
+    fallback = fallback_derivative_applications_lesson(weak_questions)
+    client = ai_client()
+    if not client:
+        return fallback
+
+    weak_context = "\n".join([f"- {q}" for q in weak_questions[:8]]) or "El estudiante no tuvo errores registrados; reforzar con ejemplos integradores."
+    prompt = f"""
+Actúa como tutor universitario de Cálculo Diferencial.
+Genera una clase breve, clara y práctica para estudiar antes del posttest.
+
+Tema obligatorio: {RESEARCH_FOCUS_TOPIC}
+Materia: {academic_context.get('subject') or 'Cálculo diferencial'}
+Curso/cohorte: {academic_context.get('cohort') or ''}
+
+Debes incluir:
+1. Explicación conceptual.
+2. Procedimiento paso a paso.
+3. Dos ejemplos resueltos: uno de optimización y uno de razones relacionadas o tasa de cambio.
+4. Errores comunes.
+5. Mini-guía para resolver el posttest.
+
+Errores o preguntas falladas del pretest:
+{weak_context}
+
+Devuelve solo texto en español, con formato Markdown simple.
+"""
+    try:
+        resp = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        text = (resp.text or "").strip()
+        return text if text else fallback
+    except Exception:
+        return fallback
+
+
+def render_research_lesson_panel(user, academic_context, pretest_quiz):
+    if not pretest_quiz or pretest_quiz.get("status") != "completed":
+        return
+    lesson_key = f"research_lesson_{user['id']}_{pretest_quiz['id']}"
+    st.markdown(
+        f"<div class='eval-card'><h3>Clase IA de refuerzo</h3>"
+        f"<span class='eval-chip'>{RESEARCH_FOCUS_TOPIC}</span>"
+        f"<span class='eval-chip'>Antes del posttest</span>"
+        f"<p class='small'>Estudia esta clase después del pretest y antes de iniciar el posttest.</p></div>",
+        unsafe_allow_html=True,
+    )
+    if st.button("Generar clase IA de refuerzo", use_container_width=True, key=f"btn_{lesson_key}"):
+        with st.spinner("Generando clase IA de refuerzo..."):
+            st.session_state[lesson_key] = generate_derivative_applications_lesson(user["id"], academic_context, pretest_quiz["id"])
+        log_interaction(
+            user["id"],
+            "assistant",
+            st.session_state[lesson_key],
+            topic="Cálculo diferencial",
+            subtopic=RESEARCH_FOCUS_TOPIC,
+            level=academic_context.get("course_level", ""),
+            model="gemini-2.5-flash",
+            latency=0,
+        )
+        st.rerun()
+    if st.session_state.get(lesson_key):
+        st.markdown(st.session_state[lesson_key])
+
+
 def render_teacher_plan_manager(user):
     st.markdown("""
     <div class='eval-hero'>
@@ -2226,6 +2398,7 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
     a.markdown(f"<div class='metric'><b>{profile['total_questions']}</b><br><span>Consultas usadas</span></div>", unsafe_allow_html=True)
     b.markdown(f"<div class='metric'><b>{academic_context.get('cohort')}</b><br><span>Cohorte</span></div>", unsafe_allow_html=True)
     last_quiz = get_latest_adaptive_quiz(user["id"], quiz_type)
+    completed_pretest = get_latest_adaptive_quiz(user["id"], "pretest")
     last_score = "N/D" if not last_quiz or last_quiz.get("score") is None else f"{float(last_quiz.get('score')):.0f}%"
     c.markdown(f"<div class='metric'><b>{last_score}</b><br><span>{quiz_type_label(quiz_type)}</span></div>", unsafe_allow_html=True)
 
@@ -2250,16 +2423,17 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
         st.markdown(
             f"<div class='eval-card'><b>{quiz_type_label(quiz_type)} de investigación</b><br>"
             f"<span class='eval-chip'>{academic_context.get('subject')}</span>"
+            f"<span class='eval-chip'>{RESEARCH_FOCUS_TOPIC}</span>"
             f"<span class='eval-chip'>{academic_context.get('cohort')}</span>"
             f"<span class='eval-chip'>{RESEARCH_QUESTION_COUNT} preguntas aleatorias</span></div>",
             unsafe_allow_html=True,
         )
 
     if quiz_type == "posttest":
-        completed_pretest = get_latest_adaptive_quiz(user["id"], "pretest")
         if not completed_pretest or completed_pretest.get("status") != "completed":
             st.warning("El posttest se habilita cuando el estudiante haya completado el pretest.")
             return
+        render_research_lesson_panel(user, academic_context, completed_pretest)
 
     current_key = f"current_adaptive_quiz_id_{quiz_type}"
     col1, col2 = st.columns(2)
@@ -2328,6 +2502,8 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
         for q in questions:
             icon = "✅" if q.get("is_correct") else "❌"
             st.markdown(f"<div class='eval-question'><b>{icon} {q.get('question')}</b><br><span class='small'>Tu respuesta: {q.get('user_answer') or 'Sin respuesta'} · Correcta: {q.get('correct_answer')}</span><br><br>{q.get('explanation') or ''}</div>", unsafe_allow_html=True)
+        if (quiz.get("quiz_type") or quiz_type) == "pretest":
+            render_research_lesson_panel(user, academic_context, quiz)
         return
 
     with st.form(f"adaptive_quiz_form_{quiz_id}"):
