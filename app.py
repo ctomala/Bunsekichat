@@ -10,6 +10,13 @@ from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 from google import genai
 
+try:
+    from research_analytics import build_research_word_report
+    RESEARCH_ANALYTICS_IMPORT_ERROR = ""
+except Exception as research_analytics_error:
+    build_research_word_report = None
+    RESEARCH_ANALYTICS_IMPORT_ERROR = str(research_analytics_error)
+
 # Exportaciones opcionales: instalar python-docx y reportlab para Word/PDF.
 try:
     from docx import Document
@@ -3451,11 +3458,15 @@ def render_teacher_research_dashboard(user):
     sel_shift = f4.selectbox("Jornada", opts("profile_shift"), key="research_shift_filter")
     sel_type = f5.selectbox("Instrumento", ["Todos", "pretest", "posttest"], key="research_type_filter")
 
-    filtered = df.copy()
-    if sel_subject != "Todos": filtered = filtered[filtered["profile_subject"].astype(str) == sel_subject]
-    if sel_course != "Todos": filtered = filtered[filtered["profile_course_level"].astype(str) == sel_course]
-    if sel_parallel != "Todos": filtered = filtered[filtered["profile_parallel"].astype(str) == sel_parallel]
-    if sel_shift != "Todos": filtered = filtered[filtered["profile_shift"].astype(str) == sel_shift]
+    cohort_filtered = df.copy()
+    if sel_subject != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["profile_subject"].astype(str) == sel_subject]
+    if sel_course != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["profile_course_level"].astype(str) == sel_course]
+    if sel_parallel != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["profile_parallel"].astype(str) == sel_parallel]
+    if sel_shift != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["profile_shift"].astype(str) == sel_shift]
+
+    # La vista puede mostrar un instrumento, pero el informe inferencial siempre
+    # conserva pretest y postest de la cohorte para mantener el emparejamiento.
+    filtered = cohort_filtered.copy()
     if sel_type != "Todos": filtered = filtered[filtered["quiz_type"].astype(str) == sel_type]
 
     completed = filtered[filtered["status"].astype(str).eq("completed")].copy()
@@ -3514,14 +3525,74 @@ def render_teacher_research_dashboard(user):
         "application/json",
         use_container_width=True,
     )
+    all_exercise_df = pd.DataFrame(get_research_exercise_attempts())
+    all_survey_df = pd.DataFrame(get_research_survey_responses())
+    allowed_user_ids = set(pd.to_numeric(cohort_filtered.get("user_id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int))
+    allowed_quiz_ids = set(pd.to_numeric(cohort_filtered.get("id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int))
+
+    def related_research_rows(source_df):
+        if source_df.empty:
+            return source_df
+        user_ids = pd.to_numeric(source_df.get("user_id", pd.Series(index=source_df.index, dtype=float)), errors="coerce")
+        user_mask = user_ids.isin(allowed_user_ids)
+        if "quiz_id" not in source_df.columns:
+            return source_df[user_mask].copy()
+        quiz_ids = pd.to_numeric(source_df["quiz_id"], errors="coerce")
+        return source_df[quiz_ids.isin(allowed_quiz_ids) | (quiz_ids.isna() & user_mask)].copy()
+
+    exercise_df = related_research_rows(all_exercise_df)
+    survey_df = related_research_rows(all_survey_df)
+    report_filters = {
+        "subject": sel_subject,
+        "course": sel_course,
+        "parallel": sel_parallel,
+        "shift": sel_shift,
+    }
+    report_state_cols = [col for col in ["id", "user_id", "quiz_type", "status", "score", "completed_at", "dimension_scores_json"] if col in cohort_filtered.columns]
+    signature_payload = {
+        "filters": report_filters,
+        "research": cohort_filtered[report_state_cols].fillna("").astype(str).to_dict(orient="records"),
+        "exercise_ids": sorted(pd.to_numeric(exercise_df.get("id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int).tolist()),
+        "survey_ids": sorted(pd.to_numeric(survey_df.get("id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int).tolist()),
+    }
+    report_signature = hashlib.sha256(json.dumps(signature_payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+    st.markdown("<div class='teacher-card'><h3>Informe estadístico integral</h3><p class='small'>EDA, calidad de datos, normalidad, hipótesis pareadas, tamaños del efecto, dimensiones, encuesta y ejercicios, con gráficos e interpretación automática.</p></div>", unsafe_allow_html=True)
+    if build_research_word_report is None:
+        st.error(f"El módulo estadístico no está disponible. Verifica scipy y matplotlib. Detalle: {RESEARCH_ANALYTICS_IMPORT_ERROR}")
+    else:
+        if st.button("Generar análisis EDA e inferencial en Word", key="generate_research_word", use_container_width=True):
+            try:
+                with st.spinner("Calculando pruebas y preparando el documento Word..."):
+                    st.session_state["research_word_report"] = build_research_word_report(
+                        cohort_filtered,
+                        exercise_df=exercise_df,
+                        survey_df=survey_df,
+                        filters=report_filters,
+                        research_title=RESEARCH_TITLE,
+                    )
+                    st.session_state["research_word_signature"] = report_signature
+                st.success("Informe estadístico generado correctamente.")
+            except Exception as report_error:
+                st.error(f"No se pudo generar el informe: {report_error}")
+        if st.session_state.get("research_word_signature") == report_signature and st.session_state.get("research_word_report"):
+            safe_group = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{sel_course}_{sel_parallel}_{sel_shift}").strip("_") or "cohorte"
+            st.download_button(
+                "Descargar informe estadístico Word",
+                st.session_state["research_word_report"],
+                f"informe_estadistico_bunsekichat_{safe_group}.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="download_research_word",
+                use_container_width=True,
+            )
+        st.caption("El Word usa los filtros académicos seleccionados y analiza conjuntamente pretest y postest, aunque la tabla visible muestre un solo instrumento.")
+
     r_script = "datos <- read.csv('investigacion_pretest_posttest_bunsekichat.csv')\nsummary(datos)\nboxplot(score ~ quiz_type, data=datos)\n"
     py_script = "import pandas as pd\nimport seaborn as sns\nimport matplotlib.pyplot as plt\n\ndf = pd.read_csv('investigacion_pretest_posttest_bunsekichat.csv')\nprint(df.groupby('quiz_type')['score'].describe())\nsns.boxplot(data=df, x='quiz_type', y='score')\nplt.show()\n"
     r1, r2 = st.columns(2)
     r1.download_button("Script R", r_script.encode("utf-8"), "analisis_bunsekichat.R", "text/plain", use_container_width=True)
     r2.download_button("Script Python", py_script.encode("utf-8"), "analisis_bunsekichat.py", "text/plain", use_container_width=True)
 
-    exercise_df = pd.DataFrame(get_research_exercise_attempts())
-    survey_df = pd.DataFrame(get_research_survey_responses())
     e1, e2 = st.columns(2)
     if not exercise_df.empty:
         e1.download_button("CSV ejercicios guiados", exercise_df.to_csv(index=False).encode("utf-8-sig"), "ejercicios_guiados_bunsekichat.csv", "text/csv", use_container_width=True)

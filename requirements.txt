@@ -1,6 +1,9 @@
 streamlit
 pandas
 plotly
+numpy
+scipy
+matplotlib
 python-dotenv
 google-genai
 bcrypt
