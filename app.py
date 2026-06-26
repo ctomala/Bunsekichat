@@ -2266,9 +2266,17 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
     can_generate = not (research_mode and last_quiz)
     generate_label = f"Iniciar {quiz_type_label(quiz_type)}" if research_mode else "Generar nueva evaluación IA"
     if col1.button(generate_label, use_container_width=True, disabled=not can_generate):
-        quiz_id = create_adaptive_quiz(user["id"], plan_id, difficulty, n_questions, quiz_type=quiz_type, academic_context=academic_context)
-        st.session_state[current_key] = quiz_id
-        st.rerun()
+        try:
+            with st.spinner(f"Generando {quiz_type_label(quiz_type).lower()}..."):
+                quiz_id = create_adaptive_quiz(user["id"], plan_id, difficulty, n_questions, quiz_type=quiz_type, academic_context=academic_context)
+            st.session_state[current_key] = quiz_id
+            st.success("Instrumento generado. Si no ves las preguntas, baja un poco en la página.")
+            time.sleep(0.4)
+            st.rerun()
+        except Exception as e:
+            st.error("No se pudo generar el instrumento. Revisa el detalle técnico o envía esta captura.")
+            st.exception(e)
+            return
     if research_mode and not can_generate:
         if last_quiz.get("status") == "completed":
             st.info(f"{quiz_type_label(quiz_type)} ya fue completado. El resultado queda registrado para la investigación.")
