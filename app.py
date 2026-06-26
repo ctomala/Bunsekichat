@@ -1,4 +1,4 @@
-import os, re, json, hashlib, time, threading, random
+import os, re, json, hashlib, time, threading, random, unicodedata
 from datetime import datetime, date, timedelta
 from io import BytesIO
 
@@ -65,6 +65,75 @@ TOPICS = {
     "Cálculo integral": ["Antiderivadas", "Integral definida", "Técnicas de integración", "Aplicaciones de la integral", "Series básicas"],
 }
 LEVELS = ["Inicial", "Básico", "Intermedio", "Avanzado"]
+
+
+def env_list(name, default):
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    values = [x.strip() for x in raw.split(",") if x.strip()]
+    return values or default
+
+
+def env_int(name, default):
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+ACADEMIC_SUBJECTS = env_list("BUNSEKI_SUBJECTS", [
+    "Cálculo diferencial",
+    "Cálculo integral",
+    "Álgebra lineal",
+    "Estadística",
+])
+ACADEMIC_COURSE_LEVELS = env_list("BUNSEKI_COURSE_LEVELS", ["4", "1", "2", "3", "5", "6", "7", "8"])
+ACADEMIC_PARALLELS = env_list("BUNSEKI_PARALLELS", ["4-A1", "4-A2", "4-B1", "4-B2"])
+ACADEMIC_SHIFTS = env_list("BUNSEKI_SHIFTS", ["Matutino", "Vespertino", "Nocturno"])
+RESEARCH_TITLE = os.getenv(
+    "BUNSEKI_RESEARCH_TITLE",
+    "Efectos de un Tutor Inteligente basado en Inteligencia Artificial Generativa sobre el Rendimiento Académico en Cálculo Diferencial en la Universidad de Guayaquil",
+)
+RESEARCH_QUESTION_COUNT = env_int("BUNSEKI_RESEARCH_QUESTION_COUNT", 20)
+RESEARCH_TEST_TYPES = {
+    "adaptive": "Evaluación adaptativa",
+    "pretest": "Pretest",
+    "posttest": "Posttest",
+}
+
+# Banco local de respaldo para que la investigación funcione aun si la API IA no responde.
+DIFFERENTIAL_CALCULUS_QUESTION_BANK = [
+    {"question": "Si f(x)=3x^2-5x+2, ¿cuál es f'(x)?", "options": ["6x-5", "3x-5", "6x+2", "x^3-5x"], "correct_answer": "6x-5", "explanation": "Se aplica la regla de la potencia término a término.", "bloom_level": "Aplicar", "topic": "Derivadas"},
+    {"question": "El límite de (x^2-9)/(x-3) cuando x tiende a 3 es:", "options": ["6", "3", "0", "No existe"], "correct_answer": "6", "explanation": "Se factoriza x^2-9=(x-3)(x+3) y queda x+3.", "bloom_level": "Aplicar", "topic": "Límites"},
+    {"question": "La derivada de sen(x) es:", "options": ["cos(x)", "-sen(x)", "-cos(x)", "tan(x)"], "correct_answer": "cos(x)", "explanation": "Es una derivada trigonométrica fundamental.", "bloom_level": "Recordar", "topic": "Derivadas trigonométricas"},
+    {"question": "Para que una función sea continua en x=a debe cumplirse que:", "options": ["f(a) existe, el límite existe y ambos son iguales", "Solo exista f(a)", "Solo exista el límite lateral derecho", "La derivada sea cero"], "correct_answer": "f(a) existe, el límite existe y ambos son iguales", "explanation": "La continuidad exige existencia de valor, existencia de límite y coincidencia.", "bloom_level": "Comprender", "topic": "Continuidad"},
+    {"question": "Si f'(a)>0, entonces cerca de a la función tiende a:", "options": ["Crecer", "Decrecer", "Ser constante siempre", "No ser continua"], "correct_answer": "Crecer", "explanation": "Una derivada positiva indica tasa de cambio positiva.", "bloom_level": "Comprender", "topic": "Aplicaciones de la derivada"},
+    {"question": "La derivada de ln(x), para x>0, es:", "options": ["1/x", "x", "ln(x)", "e^x"], "correct_answer": "1/x", "explanation": "Es la regla básica de la función logaritmo natural.", "bloom_level": "Recordar", "topic": "Derivadas logarítmicas"},
+    {"question": "¿Cuál es la derivada de (x^2+1)^5?", "options": ["10x(x^2+1)^4", "5(x^2+1)^4", "2x(x^2+1)^5", "10(x^2+1)^4"], "correct_answer": "10x(x^2+1)^4", "explanation": "Se usa regla de la cadena: 5(x^2+1)^4 por 2x.", "bloom_level": "Aplicar", "topic": "Regla de la cadena"},
+    {"question": "La pendiente de la recta tangente a una curva en un punto se obtiene con:", "options": ["La derivada en ese punto", "El área bajo la curva", "La ordenada al origen", "El promedio de los valores de y"], "correct_answer": "La derivada en ese punto", "explanation": "La derivada representa la tasa instantánea y la pendiente tangente.", "bloom_level": "Comprender", "topic": "Interpretación de la derivada"},
+    {"question": "El límite de sen(x)/x cuando x tiende a 0 es:", "options": ["1", "0", "Infinito", "No existe"], "correct_answer": "1", "explanation": "Es un límite trigonométrico notable.", "bloom_level": "Recordar", "topic": "Límites trigonométricos"},
+    {"question": "Si f''(x)>0 en un intervalo, la gráfica es:", "options": ["Cóncava hacia arriba", "Cóncava hacia abajo", "Siempre decreciente", "Discontinua"], "correct_answer": "Cóncava hacia arriba", "explanation": "La segunda derivada positiva indica concavidad hacia arriba.", "bloom_level": "Comprender", "topic": "Concavidad"},
+    {"question": "Un punto crítico puede aparecer cuando:", "options": ["f'(x)=0 o f'(x) no existe", "f(x)=0 siempre", "x es negativo", "La función es lineal"], "correct_answer": "f'(x)=0 o f'(x) no existe", "explanation": "Los candidatos a extremos locales se buscan donde la derivada se anula o no existe.", "bloom_level": "Comprender", "topic": "Puntos críticos"},
+    {"question": "La derivada de e^(2x) es:", "options": ["2e^(2x)", "e^(2x)", "2x e^(2x)", "e^2"], "correct_answer": "2e^(2x)", "explanation": "Se aplica regla de la cadena a la función exponencial.", "bloom_level": "Aplicar", "topic": "Derivadas exponenciales"},
+    {"question": "La regla del producto para derivar u(x)v(x) es:", "options": ["u'v+uv'", "u'v'", "u/v", "u'-v'"], "correct_answer": "u'v+uv'", "explanation": "La derivada del producto combina la derivada de cada factor.", "bloom_level": "Recordar", "topic": "Regla del producto"},
+    {"question": "Para hallar máximos y mínimos absolutos en un intervalo cerrado se revisan:", "options": ["Puntos críticos y extremos del intervalo", "Solo puntos donde f(x)=0", "Solo valores negativos", "Solo el punto medio"], "correct_answer": "Puntos críticos y extremos del intervalo", "explanation": "El teorema del valor extremo exige comparar candidatos internos y extremos.", "bloom_level": "Aplicar", "topic": "Optimización"},
+    {"question": "La linealización de f en x=a tiene la forma:", "options": ["L(x)=f(a)+f'(a)(x-a)", "L(x)=f'(a)+a(x-a)", "L(x)=f(a)(x-a)", "L(x)=f''(a)"], "correct_answer": "L(x)=f(a)+f'(a)(x-a)", "explanation": "La aproximación lineal usa el valor y la pendiente en a.", "bloom_level": "Aplicar", "topic": "Aproximación lineal"},
+    {"question": "En la ecuación x^2+y^2=25, la derivada implícita dy/dx es:", "options": ["-x/y", "x/y", "-y/x", "2x+2y"], "correct_answer": "-x/y", "explanation": "Derivando: 2x+2y y'=0, por tanto y'=-x/y.", "bloom_level": "Aplicar", "topic": "Derivación implícita"},
+    {"question": "La función f(x)=|x| no es derivable en x=0 porque:", "options": ["Las derivadas laterales son diferentes", "No existe f(0)", "No es continua en 0", "Su dominio es vacío"], "correct_answer": "Las derivadas laterales son diferentes", "explanation": "En x=0 la pendiente lateral izquierda y derecha no coinciden.", "bloom_level": "Analizar", "topic": "Derivabilidad"},
+    {"question": "El teorema del valor medio requiere que f sea:", "options": ["Continua en [a,b] y derivable en (a,b)", "Solo derivable en a", "Discontinua en [a,b]", "Constante en todo su dominio"], "correct_answer": "Continua en [a,b] y derivable en (a,b)", "explanation": "Son las condiciones necesarias para aplicar el teorema.", "bloom_level": "Comprender", "topic": "Teorema del valor medio"},
+    {"question": "La derivada de tan(x) es:", "options": ["sec^2(x)", "cos^2(x)", "-csc^2(x)", "sen(x)"], "correct_answer": "sec^2(x)", "explanation": "Es una identidad básica de derivación trigonométrica.", "bloom_level": "Recordar", "topic": "Derivadas trigonométricas"},
+    {"question": "La derivada de una constante c es:", "options": ["0", "c", "1", "x"], "correct_answer": "0", "explanation": "Una constante no cambia respecto de x.", "bloom_level": "Recordar", "topic": "Reglas básicas de derivación"},
+    {"question": "La regla de la potencia establece que la derivada de x^n es:", "options": ["nx^(n-1)", "x^(n+1)", "n/x", "x^n"], "correct_answer": "nx^(n-1)", "explanation": "El exponente baja como coeficiente y se reduce en una unidad.", "bloom_level": "Recordar", "topic": "Regla de la potencia"},
+    {"question": "Si f'(x)=2x, entonces f crece en:", "options": ["(0, infinito)", "(-infinito, 0)", "Todo R", "Ningún intervalo"], "correct_answer": "(0, infinito)", "explanation": "La función crece donde la derivada es positiva.", "bloom_level": "Analizar", "topic": "Monotonía"},
+    {"question": "Un límite bilateral existe cuando:", "options": ["Los límites laterales izquierdo y derecho son iguales", "Solo existe el límite izquierdo", "La función no está definida", "La derivada es cero"], "correct_answer": "Los límites laterales izquierdo y derecho son iguales", "explanation": "La igualdad de límites laterales garantiza el límite bilateral.", "bloom_level": "Comprender", "topic": "Límites laterales"},
+    {"question": "La derivada de cos(3x) es:", "options": ["-3sen(3x)", "-sen(3x)", "3cos(3x)", "sen(3x)"], "correct_answer": "-3sen(3x)", "explanation": "Se deriva cos(u) como -sen(u) y se multiplica por u'=3.", "bloom_level": "Aplicar", "topic": "Regla de la cadena"},
+    {"question": "La regla de L'Hôpital puede aplicarse inicialmente ante formas:", "options": ["0/0 o infinito/infinito", "Solo 1/0", "Solo 0+0", "Cualquier suma"], "correct_answer": "0/0 o infinito/infinito", "explanation": "La regla se usa bajo condiciones de indeterminación de cocientes.", "bloom_level": "Comprender", "topic": "Límites indeterminados"},
+    {"question": "En problemas de razones relacionadas, el primer paso recomendable es:", "options": ["Definir variables y una ecuación que las relacione", "Derivar sin leer el enunciado", "Elegir una respuesta al azar", "Eliminar todas las unidades"], "correct_answer": "Definir variables y una ecuación que las relacione", "explanation": "La modelación correcta permite derivar respecto del tiempo.", "bloom_level": "Aplicar", "topic": "Razones relacionadas"},
+    {"question": "Si f''(x)<0 en un intervalo, la gráfica es:", "options": ["Cóncava hacia abajo", "Cóncava hacia arriba", "Siempre creciente", "Lineal horizontal"], "correct_answer": "Cóncava hacia abajo", "explanation": "La segunda derivada negativa indica concavidad hacia abajo.", "bloom_level": "Comprender", "topic": "Concavidad"},
+    {"question": "Un máximo local suele identificarse cuando f'(x) cambia de:", "options": ["Positiva a negativa", "Negativa a positiva", "Cero a cero siempre", "No definida a positiva siempre"], "correct_answer": "Positiva a negativa", "explanation": "El cambio de crecimiento a decrecimiento indica máximo local.", "bloom_level": "Analizar", "topic": "Criterio de la primera derivada"},
+    {"question": "Si f(x)=x^3, entonces f'(2) es:", "options": ["12", "6", "8", "3"], "correct_answer": "12", "explanation": "f'(x)=3x^2, por tanto f'(2)=3(4)=12.", "bloom_level": "Aplicar", "topic": "Derivadas"},
+]
 
 st.set_page_config(page_title=APP_NAME, page_icon="∑", layout="wide", initial_sidebar_state="expanded")
 
@@ -638,231 +707,61 @@ div[data-testid="stDownloadButton"] button:focus{
 """, unsafe_allow_html=True)
 
 
-# =========================================================
-# FIX VISUAL SELECTIVO: TESTS Y ENCUESTAS LEGIBLES
-# =========================================================
+
 st.markdown("""
 <style>
-/* Aplica solo al área principal, no al menú lateral */
-section.main div[data-testid="stRadio"] label,
-section.main div[data-testid="stRadio"] label *,
-section.main div[role="radiogroup"] label,
-section.main div[role="radiogroup"] label *{
-    color:#111827 !important;
-    -webkit-text-fill-color:#111827 !important;
-    font-weight:700 !important;
+/* ===================== EVALUACIÓN INTELIGENTE ADAPTATIVA ===================== */
+.eval-hero{
+    background:linear-gradient(135deg,#ffffff 0%,#fff1f8 60%,#fde7f3 100%);
+    border:1px solid #f4b8d5;
+    border-radius:24px;
+    padding:20px 22px;
+    box-shadow:0 16px 38px rgba(111,15,73,.10);
+    margin:14px 0;
 }
-
-section.main div[role="radiogroup"] label{
-    background:#ffffff !important;
-    border:1px solid #cbd5e1 !important;
-    border-radius:14px !important;
-    padding:10px 12px !important;
-    margin:6px 0 !important;
-    box-shadow:0 4px 12px rgba(15,23,42,.05) !important;
-}
-
-section.main div[role="radiogroup"] label:hover{
-    background:#fff7fb !important;
-    border-color:#d4147f !important;
-}
-
-section.main div[data-testid="stSlider"] label,
-section.main div[data-testid="stSlider"] label *,
-section.main div[data-testid="stSlider"] p,
-section.main div[data-testid="stSlider"] span{
-    color:#111827 !important;
-    -webkit-text-fill-color:#111827 !important;
-}
-
-.research-question-card{
+.eval-hero h2{margin:.1rem 0 .35rem;color:#6f0f49;font-size:1.55rem;}
+.eval-hero p{margin:.25rem 0;color:#4b5563;font-size:.92rem;}
+.eval-card{
     background:#ffffff;
-    border:1px solid #e5e7eb;
-    border-radius:16px;
-    padding:14px 16px;
-    margin:14px 0 8px;
-    color:#111827;
-    box-shadow:0 8px 18px rgba(15,23,42,.05);
+    border:1px solid #f1c8dc;
+    border-radius:20px;
+    padding:16px;
+    margin:12px 0;
+    box-shadow:0 10px 26px rgba(31,41,55,.06);
 }
-.research-question-card strong{color:#6f0f49;}
-.research-subject-note{
-    background:#f8fafc;
-    border:1px solid #cbd5e1;
-    color:#111827;
-    border-radius:14px;
-    padding:12px 14px;
-    margin:10px 0 14px;
+.eval-card h3{margin:.1rem 0 .45rem;color:#6f0f49;}
+.eval-chip{
+    display:inline-block;
+    background:#fce7f3;
+    border:1px solid #f5b8d5;
+    color:#6f0f49;
+    border-radius:999px;
+    padding:5px 11px;
+    font-weight:850;
+    font-size:.76rem;
+    margin:3px 5px 3px 0;
 }
-</style>
-""", unsafe_allow_html=True)
-
-
-
-# =========================================================
-# FIX DEFINITIVO FRONTEND: RADIOS/TESTS/ENCUESTAS LEGIBLES
-# Este bloque se carga al final para sobrescribir estilos oscuros previos.
-# =========================================================
-st.markdown("""
-<style>
-/* Limpia cualquier fondo oscuro heredado en opciones del área principal */
-section.main div[data-testid="stRadio"],
-section.main div[data-testid="stRadio"] *,
-section.main div[role="radiogroup"],
-section.main div[role="radiogroup"] *,
-section.main div[data-testid="stSlider"],
-section.main div[data-testid="stSlider"] *{
-    color:#111827 !important;
-    -webkit-text-fill-color:#111827 !important;
-    text-shadow:none !important;
+.eval-question{
+    background:linear-gradient(180deg,#ffffff 0%,#fff7fb 100%);
+    border:1px solid #f0c8dc;
+    border-radius:18px;
+    padding:14px;
+    margin:12px 0;
 }
-
-/* Tarjeta de cada opción */
-section.main div[data-testid="stRadio"] div[role="radiogroup"] label{
-    display:flex !important;
-    align-items:center !important;
-    width:100% !important;
-    min-height:42px !important;
-    background:#ffffff !important;
-    background-color:#ffffff !important;
-    border:1.5px solid #cbd5e1 !important;
-    border-radius:14px !important;
-    padding:10px 12px !important;
-    margin:7px 0 !important;
-    box-shadow:0 5px 14px rgba(15,23,42,.06) !important;
+.eval-result-pass{
+    background:#ecfdf5;border:1px solid #86efac;color:#14532d;
+    border-radius:18px;padding:16px;margin:14px 0;font-weight:800;
 }
-
-/* Quita fondos oscuros internos de BaseWeb/Streamlit */
-section.main div[data-testid="stRadio"] div[role="radiogroup"] label > div,
-section.main div[data-testid="stRadio"] div[role="radiogroup"] label > div *,
-section.main div[data-testid="stRadio"] div[role="radiogroup"] label p,
-section.main div[data-testid="stRadio"] div[role="radiogroup"] label span{
-    background:transparent !important;
-    background-color:transparent !important;
-    color:#111827 !important;
-    -webkit-text-fill-color:#111827 !important;
-    font-weight:700 !important;
-    opacity:1 !important;
+.eval-result-fail{
+    background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;
+    border-radius:18px;padding:16px;margin:14px 0;font-weight:800;
 }
-
-/* Hover y selección legibles */
-section.main div[data-testid="stRadio"] div[role="radiogroup"] label:hover{
-    background:#fff7fb !important;
-    background-color:#fff7fb !important;
-    border-color:#d4147f !important;
-}
-section.main div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked){
-    background:#ffe4f2 !important;
-    background-color:#ffe4f2 !important;
-    border:2px solid #d4147f !important;
-}
-section.main div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) p,
-section.main div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) span{
-    color:#6f0f49 !important;
-    -webkit-text-fill-color:#6f0f49 !important;
-    font-weight:900 !important;
-}
-
-/* Preguntas del test como tarjetas claras */
-.research-question-card,
-.quiz-question-card{
-    background:#ffffff !important;
-    border:1px solid #e5e7eb !important;
-    border-radius:16px !important;
-    padding:14px 16px !important;
-    margin:16px 0 8px !important;
-    color:#111827 !important;
-    box-shadow:0 8px 18px rgba(15,23,42,.05) !important;
-}
-.research-question-card strong,
-.quiz-question-card strong{
-    color:#6f0f49 !important;
-}
-.research-subject-note{
-    background:#f8fafc !important;
-    border:1px solid #cbd5e1 !important;
-    color:#111827 !important;
-    border-radius:14px !important;
-    padding:12px 14px !important;
-    margin:10px 0 14px !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-
-# =========================================================
-# FIX UI Q1/Q2: RESPUESTAS DE TEST COMO SELECTBOX LEGIBLE
-# Evita heredar colores oscuros de radios anteriores y mejora visual en móvil.
-# =========================================================
-st.markdown("""
-<style>
-.exam-answer-select{
-    background:#ffffff !important;
-    border:1px solid #d1d5db !important;
-    border-radius:16px !important;
-    padding:10px 12px !important;
-    margin:8px 0 18px !important;
-    box-shadow:0 8px 18px rgba(15,23,42,.06) !important;
-}
-.exam-answer-select label,
-.exam-answer-select label *,
-.exam-answer-select div,
-.exam-answer-select span,
-.exam-answer-select p{
-    color:#111827 !important;
-    -webkit-text-fill-color:#111827 !important;
-    opacity:1 !important;
-}
-.exam-answer-select [data-baseweb="select"],
-.exam-answer-select [data-baseweb="select"] > div{
-    background:#f8fafc !important;
-    color:#111827 !important;
-    border-radius:12px !important;
-}
-.exam-answer-select [data-baseweb="select"] *{
-    color:#111827 !important;
-    -webkit-text-fill-color:#111827 !important;
-}
-.exam-answer-help{
-    font-size:.82rem;
-    color:#475569 !important;
-    margin:0 0 6px 2px;
-    font-weight:700;
-}
-.research-question-card, .quiz-question-card{
-    background:#ffffff !important;
-    color:#111827 !important;
-    border:1px solid #e5e7eb !important;
-    border-left:6px solid #d4147f !important;
-    border-radius:16px !important;
-    padding:14px 16px !important;
-    margin:18px 0 8px !important;
-    box-shadow:0 8px 18px rgba(15,23,42,.06) !important;
-}
-.research-question-card strong, .quiz-question-card strong{
-    color:#6f0f49 !important;
-    -webkit-text-fill-color:#6f0f49 !important;
-}
-/* Menú desplegable abierto */
-div[data-baseweb="popover"] div,
-div[data-baseweb="menu"] div,
-ul[role="listbox"] li{
-    color:#111827 !important;
-    -webkit-text-fill-color:#111827 !important;
-    background:#ffffff !important;
-}
-ul[role="listbox"] li:hover,
-div[data-baseweb="menu"] div:hover{
-    background:#fff7fb !important;
-}
-@media(max-width:760px){
-    .research-question-card, .quiz-question-card{
-        padding:12px 13px !important;
-        font-size:.92rem !important;
-    }
-    .exam-answer-select{
-        padding:9px 10px !important;
-    }
+.plan-upload-box{
+    background:linear-gradient(135deg,#ffffff 0%,#fff7fb 100%);
+    border:1px dashed #d4147f;
+    border-radius:20px;
+    padding:16px;
+    margin:12px 0;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -981,6 +880,12 @@ def init_db():
                     last_names TEXT,
                     birth_date TEXT,
                     course TEXT,
+                    subject TEXT,
+                    course_level TEXT,
+                    parallel TEXT,
+                    shift TEXT,
+                    cohort TEXT,
+                    full_name_normalized TEXT,
                     teacher TEXT,
                     phone TEXT,
                     province TEXT,
@@ -1040,54 +945,68 @@ def init_db():
                     answers_json TEXT,
                     created_at TEXT NOT NULL
                 );
-
-                -- =====================================================
-                -- MÓDULO DE INVESTIGACIÓN: PAPER Q1/Q2
-                -- =====================================================
-                CREATE TABLE IF NOT EXISTS research_consents(
+                CREATE TABLE IF NOT EXISTS analytic_plans(
                     id SERIAL PRIMARY KEY,
-                    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    accepted BOOLEAN DEFAULT FALSE,
-                    consent_text TEXT,
-                    accepted_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS research_tests(
-                    id SERIAL PRIMARY KEY,
-                    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    test_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
                     course TEXT,
-                    score DOUBLE PRECISION,
-                    total_questions INTEGER,
-                    correct_answers INTEGER,
-                    answers_json TEXT,
-                    started_at TEXT,
+                    subject TEXT,
+                    course_level TEXT,
+                    parallel TEXT,
+                    shift TEXT,
+                    teacher_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    filename TEXT,
+                    raw_text TEXT,
+                    summary TEXT,
                     created_at TEXT NOT NULL
                 );
-
-                CREATE TABLE IF NOT EXISTS research_surveys(
+                CREATE TABLE IF NOT EXISTS plan_topics(
                     id SERIAL PRIMARY KEY,
-                    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    survey_type TEXT NOT NULL,
-                    question_code TEXT NOT NULL,
-                    construct TEXT,
-                    score INTEGER NOT NULL,
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS research_learning_logs(
-                    id SERIAL PRIMARY KEY,
-                    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    source_interaction_id INTEGER,
-                    course TEXT,
+                    plan_id INTEGER REFERENCES analytic_plans(id) ON DELETE CASCADE,
+                    unit_name TEXT,
                     topic TEXT,
                     subtopic TEXT,
-                    blooms_level TEXT,
-                    difficulty TEXT,
-                    session_label TEXT,
-                    created_at TEXT NOT NULL
+                    learning_outcome TEXT,
+                    bloom_level TEXT,
+                    keywords TEXT
                 );
-
+                CREATE TABLE IF NOT EXISTS adaptive_quizzes(
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    plan_id INTEGER REFERENCES analytic_plans(id) ON DELETE SET NULL,
+                    title TEXT,
+                    quiz_type TEXT DEFAULT 'adaptive',
+                    source_topic TEXT,
+                    difficulty TEXT,
+                    subject TEXT,
+                    course_level TEXT,
+                    parallel TEXT,
+                    shift TEXT,
+                    cohort TEXT,
+                    research_title TEXT,
+                    question_count INTEGER,
+                    random_seed TEXT,
+                    score DOUBLE PRECISION,
+                    passed BOOLEAN DEFAULT FALSE,
+                    attempt_no INTEGER DEFAULT 1,
+                    parent_quiz_id INTEGER,
+                    status TEXT DEFAULT 'generated',
+                    recommendation TEXT,
+                    created_at TEXT NOT NULL,
+                    completed_at TEXT
+                );
+                CREATE TABLE IF NOT EXISTS adaptive_questions(
+                    id SERIAL PRIMARY KEY,
+                    quiz_id INTEGER NOT NULL REFERENCES adaptive_quizzes(id) ON DELETE CASCADE,
+                    question TEXT NOT NULL,
+                    options_json TEXT,
+                    correct_answer TEXT,
+                    position INTEGER,
+                    topic TEXT,
+                    user_answer TEXT,
+                    explanation TEXT,
+                    bloom_level TEXT,
+                    is_correct BOOLEAN
+                );
                 CREATE TABLE IF NOT EXISTS settings(
                     key TEXT PRIMARY KEY,
                     value TEXT
@@ -1096,10 +1015,34 @@ def init_db():
                 CREATE INDEX IF NOT EXISTS idx_interactions_created_at ON interactions(created_at);
                 CREATE INDEX IF NOT EXISTS idx_location_events_user_id ON location_events(user_id);
                 CREATE INDEX IF NOT EXISTS idx_quizzes_user_id ON quizzes(user_id);
-                CREATE INDEX IF NOT EXISTS idx_research_consents_student_id ON research_consents(student_id);
-                CREATE INDEX IF NOT EXISTS idx_research_tests_student_id ON research_tests(student_id);
-                CREATE INDEX IF NOT EXISTS idx_research_surveys_student_id ON research_surveys(student_id);
-                CREATE INDEX IF NOT EXISTS idx_research_learning_logs_student_id ON research_learning_logs(student_id);
+                CREATE INDEX IF NOT EXISTS idx_plan_topics_plan_id ON plan_topics(plan_id);
+                CREATE INDEX IF NOT EXISTS idx_adaptive_quizzes_user_id ON adaptive_quizzes(user_id);
+                CREATE INDEX IF NOT EXISTS idx_adaptive_questions_quiz_id ON adaptive_questions(quiz_id);
+                """)
+                cur.execute("""
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS subject TEXT;
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS course_level TEXT;
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS parallel TEXT;
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS shift TEXT;
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS cohort TEXT;
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS full_name_normalized TEXT;
+                ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS subject TEXT;
+                ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS course_level TEXT;
+                ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS parallel TEXT;
+                ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS shift TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS quiz_type TEXT DEFAULT 'adaptive';
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS subject TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS course_level TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS parallel TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS shift TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS cohort TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS research_title TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS question_count INTEGER;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS random_seed TEXT;
+                ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS position INTEGER;
+                ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS topic TEXT;
+                CREATE INDEX IF NOT EXISTS idx_profiles_cohort ON profiles(cohort);
+                CREATE INDEX IF NOT EXISTS idx_adaptive_quizzes_research ON adaptive_quizzes(quiz_type, subject, course_level, parallel, shift);
                 """)
                 cur.execute("INSERT INTO settings(key,value) VALUES('session_timeout_minutes', %s) ON CONFLICT (key) DO NOTHING", (str(SESSION_TIMEOUT_MINUTES),))
                 cur.execute("SELECT id FROM users WHERE username=%s", (ADMIN_USER,))
@@ -1116,6 +1059,113 @@ def setup_database_once():
 
 
 def now(): return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def normalize_spaces(value):
+    return re.sub(r"\s+", " ", str(value or "").strip())
+
+
+def strip_accents(value):
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
+
+
+def normalize_person_name(value):
+    value = normalize_spaces(value)
+    value = re.sub(r"[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ' -]", "", value)
+    small_words = {"de", "del", "la", "las", "los", "y", "da", "das", "do", "dos"}
+    parts = []
+    for token in value.lower().split():
+        if token in small_words:
+            parts.append(token)
+        else:
+            parts.append("-".join(piece.capitalize() for piece in token.split("-") if piece))
+    return normalize_spaces(" ".join(parts))
+
+
+def normalize_academic_text(value):
+    return normalize_spaces(value).title()
+
+
+def normalize_course_level(value):
+    return normalize_spaces(value).upper()
+
+
+def normalize_parallel(value):
+    return normalize_spaces(value).upper().replace(" ", "")
+
+
+def normalize_shift(value):
+    return normalize_spaces(value).title()
+
+
+def unique_values(values, normalizer=normalize_academic_text):
+    seen, clean = set(), []
+    for value in values:
+        item = normalizer(value)
+        key = strip_accents(item).lower()
+        if item and key not in seen:
+            clean.append(item)
+            seen.add(key)
+    return clean
+
+
+def parse_course_label(course):
+    course = normalize_spaces(course)
+    if not course:
+        return {}
+    parts = course.split()
+    shift = parts[-1].title() if parts else ""
+    code = " ".join(parts[:-1]) if len(parts) > 1 else course
+    if "-" in code:
+        level, parallel = code.split("-", 1)
+        return {
+            "course_level": normalize_course_level(level),
+            "parallel": normalize_parallel(parallel),
+            "shift": normalize_shift(shift),
+        }
+    return {"course_level": normalize_course_level(code), "parallel": "", "shift": normalize_shift(shift)}
+
+
+def build_course_label(course_level, parallel, shift):
+    code = "-".join([x for x in [normalize_course_level(course_level), normalize_parallel(parallel)] if x])
+    shift = normalize_shift(shift)
+    return normalize_spaces(f"{code} {shift}") if shift else code
+
+
+def academic_context_from_profile(prof):
+    parsed = parse_course_label(prof.get("course") if prof else "")
+    subject = normalize_academic_text((prof or {}).get("subject") or ACADEMIC_SUBJECTS[0])
+    course_level = normalize_course_level((prof or {}).get("course_level") or parsed.get("course_level") or ACADEMIC_COURSE_LEVELS[0])
+    parallel = normalize_parallel((prof or {}).get("parallel") or parsed.get("parallel") or ACADEMIC_PARALLELS[0])
+    shift = normalize_shift((prof or {}).get("shift") or parsed.get("shift") or ACADEMIC_SHIFTS[0])
+    cohort = build_course_label(course_level, parallel, shift)
+    return {
+        "subject": subject,
+        "course_level": course_level,
+        "parallel": parallel,
+        "shift": shift,
+        "cohort": cohort,
+        "course": cohort,
+    }
+
+
+def academic_selectbox(label, options, current, key, normalizer=normalize_academic_text, placeholder="Escribe el valor"):
+    cleaned_options = unique_values(options, normalizer)
+    current_clean = normalizer(current)
+    choices = cleaned_options + ["Otro..."]
+    index = cleaned_options.index(current_clean) if current_clean in cleaned_options else len(cleaned_options)
+    choice = st.selectbox(label, choices, index=index, key=key)
+    if choice == "Otro...":
+        return normalizer(st.text_input(f"{label} personalizada", value=current_clean, key=f"{key}_other", placeholder=placeholder))
+    return choice
+
+
+def birth_date_value(raw):
+    try:
+        return datetime.strptime(str(raw), "%Y-%m-%d").date()
+    except Exception:
+        return date(2005, 1, 1)
 
 
 def get_timeout():
@@ -1230,8 +1280,7 @@ def log_interaction(uid, role, message, topic='', subtopic='', level='', model='
     clean = normalize_math(message)
     gps = gps or st.session_state.get('current_gps') or {}
     with DB_LOCK:
-        row = execute("""INSERT INTO interactions(user_id,role,topic,subtopic,level,message,clean_message,model,tokens_est,latency_ms,created_at,gps_lat,gps_lon,gps_accuracy,gps_source) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""", (uid, role, topic, subtopic, level, message, clean, model, max(1, len(message)//4), latency, now(), gps.get('lat') if gps else None, gps.get('lon') if gps else None, gps.get('accuracy') if gps else None, gps.get('source') if gps else None), returning=True)
-        return row.get('id') if row else None
+        execute("""INSERT INTO interactions(user_id,role,topic,subtopic,level,message,clean_message,model,tokens_est,latency_ms,created_at,gps_lat,gps_lon,gps_accuracy,gps_source) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (uid, role, topic, subtopic, level, message, clean, model, max(1, len(message)//4), latency, now(), gps.get('lat') if gps else None, gps.get('lon') if gps else None, gps.get('accuracy') if gps else None, gps.get('source') if gps else None))
 
 
 def interactions(uid=None):
@@ -1263,7 +1312,7 @@ def build_prompt(question, topic, subtopic, level, profile):
     return f"""
 Eres BunsekiChat, tutor personalizado de matemáticas universitarias para estudiantes de bajos recursos.
 Área: {topic}. Subtema: {subtopic}. Nivel: {level}.
-Estudiante: {profile.get('first_names','')} {profile.get('last_names','')}. Curso: {profile.get('course','')}.
+Estudiante: {profile.get('first_names','')} {profile.get('last_names','')}. Materia: {profile.get('subject','')}. Curso: {profile.get('course','')}.
 
 Reglas de respuesta:
 1) Español claro, humano y docente.
@@ -1418,18 +1467,25 @@ ADAPTIVE_QUIZ_BANK = {
 }
 
 def adaptive_quiz_for_user(uid, current_topic):
-    """Devuelve 10 preguntas de la materia seleccionada en el panel lateral.
-    Mantiene el enfoque adaptativo usando la materia actual como base, para evitar mezclar áreas.
-    """
+    """Devuelve 10 preguntas vinculadas al historial del estudiante."""
+    rows = interactions(uid)
+    user_rows = [r for r in rows if r.get("role") == "user"]
+    topic_counts = {}
+    for r in user_rows:
+        t = r.get("topic") or current_topic
+        topic_counts[t] = topic_counts.get(t, 0) + 1
+    ranked_topics = sorted(topic_counts, key=topic_counts.get, reverse=True)
+    if current_topic not in ranked_topics:
+        ranked_topics.append(current_topic)
     selected = []
     used = set()
-    for q in ADAPTIVE_QUIZ_BANK.get(current_topic, []):
-        if q[0] not in used:
-            selected.append((current_topic, q))
-            used.add(q[0])
-        if len(selected) >= 10:
-            return selected
-    # respaldo: si una materia no tuviera suficientes preguntas, completa sin duplicar
+    for t in ranked_topics:
+        for q in ADAPTIVE_QUIZ_BANK.get(t, []):
+            if q[0] not in used:
+                selected.append((t, q))
+                used.add(q[0])
+            if len(selected) >= 10:
+                return selected
     for t, bank in ADAPTIVE_QUIZ_BANK.items():
         for q in bank:
             if q[0] not in used:
@@ -1443,450 +1499,6 @@ def save_quiz(uid, topic, old, new, score, passed, answers):
     with DB_LOCK:
         execute("INSERT INTO quizzes(user_id,topic,level_from,level_to,score,passed,answers_json,created_at) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)",
                 (uid, topic, old, new, score, int(passed), json.dumps(answers, ensure_ascii=False), now()))
-
-
-# =========================================================
-# MÓDULO DE INVESTIGACIÓN PARA PAPER Q1/Q2
-# =========================================================
-CONSENT_TEXT = """
-Acepto participar voluntariamente en el estudio sobre el uso de BunsekiChat como tutor inteligente
-para el aprendizaje de matemáticas universitarias. Comprendo que mis datos serán utilizados con fines
-académicos y científicos de forma anonimizada, sin publicar mi nombre ni información personal directa.
-También comprendo que mi participación no afecta mis calificaciones y que puedo retirarme del estudio
-cuando lo considere necesario.
-""".strip()
-
-RESEARCH_SURVEY_ITEMS = [
-    ("UP1", "utilidad_percibida", "BunsekiChat me ayudó a comprender mejor los conceptos matemáticos."),
-    ("UP2", "utilidad_percibida", "Las explicaciones del tutor fueron claras y útiles para estudiar."),
-    ("UP3", "utilidad_percibida", "El tutor me ayudó a resolver dudas que normalmente tendría fuera de clase."),
-    ("UP4", "utilidad_percibida", "Considero que BunsekiChat complementó adecuadamente la explicación del docente."),
-    ("AE1", "autoeficacia_matematica", "Me siento más capaz de resolver ejercicios de matemáticas."),
-    ("AE2", "autoeficacia_matematica", "Tengo mayor confianza para enfrentar problemas matemáticos nuevos."),
-    ("AE3", "autoeficacia_matematica", "Puedo identificar mejor mis errores al resolver ejercicios."),
-    ("AE4", "autoeficacia_matematica", "Creo que puedo mejorar mi desempeño académico si practico con apoyo del tutor."),
-    ("MO1", "motivacion_academica", "El uso del tutor aumentó mi interés por estudiar matemáticas."),
-    ("MO2", "motivacion_academica", "Consulté BunsekiChat por iniciativa propia, no solo por obligación."),
-    ("MO3", "motivacion_academica", "El tutor hizo que el estudio de matemáticas fuera más accesible."),
-    ("SA1", "satisfaccion", "Estoy satisfecho/a con la experiencia de uso de BunsekiChat."),
-    ("SA2", "satisfaccion", "Recomendaría esta herramienta a otros estudiantes."),
-    ("SA3", "satisfaccion", "Me gustaría utilizar un tutor similar en otras asignaturas."),
-]
-
-RESEARCH_TEST_BANK = {
-    "Cálculo diferencial": [
-        ("La derivada de f(x)=x^2 es:", ["2x", "x", "x^3", "2"], 0),
-        ("Si f'(x)>0 en un intervalo, entonces la función:", ["crece", "decrece", "es constante", "no existe"], 0),
-        ("El límite lim x→0 sen(x)/x es:", ["0", "1", "∞", "-1"], 1),
-        ("Una función es continua en a si:", ["existe f(a), existe el límite y ambos coinciden", "solo existe f(a)", "solo existe la derivada", "es lineal"], 0),
-        ("La regla de la cadena se aplica en:", ["funciones compuestas", "sumas simples", "constantes", "matrices"], 0),
-        ("Un punto crítico puede aparecer cuando:", ["f'(x)=0 o no existe", "f(x)=0 siempre", "x=1 siempre", "la función es constante siempre"], 0),
-        ("La segunda derivada permite analizar:", ["concavidad", "promedio", "determinante", "probabilidad"], 0),
-        ("La derivada de una constante es:", ["0", "1", "la constante", "x"], 0),
-        ("La derivada de sen(x) es:", ["cos(x)", "-cos(x)", "tan(x)", "-sen(x)"], 0),
-        ("Una aplicación frecuente de la derivada es:", ["optimización", "conteo de datos", "ordenamiento alfabético", "codificación"], 0),
-    ],
-    "Álgebra lineal": [
-        ("Una matriz cuadrada A es invertible si:", ["det(A) ≠ 0", "det(A)=0", "todas sus entradas son 1", "no tiene diagonal"], 0),
-        ("El producto punto de vectores ortogonales es:", ["0", "1", "-1", "∞"], 0),
-        ("La matriz identidad actúa como:", ["elemento neutro multiplicativo", "matriz nula", "vector", "determinante"], 0),
-        ("Un sistema lineal homogéneo siempre tiene:", ["solución trivial", "ninguna solución", "solo solución negativa", "infinitas siempre"], 0),
-        ("El rango de una matriz mide:", ["independencia lineal de filas o columnas", "número de decimales", "suma total", "cantidad de ceros"], 0),
-        ("Un autovector cumple:", ["Av=λv", "A+v=λ", "det(v)=0", "v=0 siempre"], 0),
-        ("Dos vectores son linealmente dependientes si:", ["uno puede expresarse como múltiplo del otro", "son siempre perpendiculares", "su suma es cero siempre", "tienen distinta dimensión"], 0),
-        ("El determinante de una matriz 2x2 [[a,b],[c,d]] es:", ["ad-bc", "ab-cd", "a+b+c+d", "ac-bd"], 0),
-        ("Una combinación lineal consiste en:", ["sumar vectores multiplicados por escalares", "dividir matrices", "calcular promedios", "ordenar datos"], 0),
-        ("El espacio columna está generado por:", ["las columnas de la matriz", "las filas únicamente", "la diagonal", "el determinante"], 0),
-    ],
-    "Estadística": [
-        ("La media aritmética representa:", ["promedio", "dato más frecuente", "valor central exacto siempre", "desviación"], 0),
-        ("La mediana divide los datos ordenados en:", ["dos partes iguales", "tres partes iguales", "diez partes", "ninguna parte"], 0),
-        ("La desviación estándar mide:", ["dispersión", "centro exacto", "moda", "probabilidad acumulada"], 0),
-        ("La probabilidad toma valores entre:", ["0 y 1", "-1 y 1", "1 y 10", "-∞ e ∞"], 0),
-        ("Una distribución normal se reconoce por:", ["forma de campana", "solo datos enteros", "ausencia de media", "asimetría obligatoria"], 0),
-        ("La varianza se relaciona con:", ["promedio de desviaciones cuadráticas", "moda", "mediana", "frecuencia absoluta"], 0),
-        ("La regresión lineal simple estudia:", ["relación entre dos variables", "solo porcentajes", "solo matrices", "solo límites"], 0),
-        ("Un intervalo de confianza expresa:", ["rango plausible para un parámetro", "valor exacto garantizado", "moda poblacional", "dato máximo"], 0),
-        ("La hipótesis nula suele representar:", ["ausencia de efecto o diferencia", "la conclusión final", "el dato mayor", "la variable dependiente"], 0),
-        ("Una muestra representativa busca:", ["reflejar características de la población", "ser siempre pequeña", "evitar variabilidad", "ser idéntica en todos los casos"], 0),
-    ],
-    "Cálculo integral": [
-        ("La integral indefinida representa:", ["familia de antiderivadas", "solo pendiente", "valor máximo", "matriz inversa"], 0),
-        ("La integral definida puede interpretarse como:", ["área neta acumulada", "derivada instantánea", "desviación estándar", "rango matricial"], 0),
-        ("La integral de 2x dx es:", ["x² + C", "2 + C", "ln(x) + C", "2x² + C"], 0),
-        ("La constante C aparece principalmente en:", ["integrales indefinidas", "límites laterales", "determinantes", "probabilidades"], 0),
-        ("El teorema fundamental del cálculo relaciona:", ["derivadas e integrales", "matrices y vectores", "media y moda", "probabilidad y frecuencia"], 0),
-        ("La técnica de sustitución se usa cuando:", ["hay composición de funciones", "solo hay constantes", "no existe variable", "se calcula una moda"], 0),
-        ("La integral de cos(x) dx es:", ["sen(x)+C", "-sen(x)+C", "tan(x)+C", "-cos(x)+C"], 0),
-        ("La integral de 1/x dx es:", ["ln|x|+C", "x²+C", "e^x+C", "1/x²+C"], 0),
-        ("En integración por partes se utiliza:", ["∫u dv = uv - ∫v du", "a²+b²=c²", "y=mx+b", "det(A)=ad-bc"], 0),
-        ("Una integral impropia puede aparecer cuando:", ["el intervalo es infinito o hay discontinuidad", "solo hay números enteros", "la función es lineal", "la matriz es identidad"], 0),
-    ],
-}
-
-def research_has_consent(uid: int) -> bool:
-    row = fetchone("SELECT accepted FROM research_consents WHERE student_id=%s AND accepted=TRUE ORDER BY id DESC LIMIT 1", (uid,))
-    return bool(row and row.get("accepted"))
-
-def research_save_consent(uid: int):
-    with DB_LOCK:
-        execute("INSERT INTO research_consents(student_id,accepted,consent_text,accepted_at) VALUES(%s,%s,%s,%s)",
-                (uid, True, CONSENT_TEXT, now()))
-
-def research_get_test(uid: int, test_type: str, course: str | None = None):
-    """Obtiene el último pretest/postest del estudiante.
-    Si se indica course, busca la prueba correspondiente a esa materia.
-    """
-    if course:
-        return fetchone(
-            "SELECT * FROM research_tests WHERE student_id=%s AND test_type=%s AND course=%s ORDER BY id DESC LIMIT 1",
-            (uid, test_type, course),
-        )
-    return fetchone("SELECT * FROM research_tests WHERE student_id=%s AND test_type=%s ORDER BY id DESC LIMIT 1", (uid, test_type))
-
-def research_get_questions(area: str | None = None, seed: int | None = None, shuffle_options: bool = True):
-    """Devuelve preguntas de investigación por materia.
-    - Si se indica area, filtra solo esa materia.
-    - Usa seed para variar el orden sin romper la corrección.
-    - Mezcla opciones y recalcula el índice correcto.
-    """
-    rng = random.Random(seed) if seed is not None else random.Random()
-    questions = []
-    banks = {area: RESEARCH_TEST_BANK.get(area, [])} if area else RESEARCH_TEST_BANK
-    for area_name, items in banks.items():
-        for q, opts, correct in items:
-            opts_list = list(opts)
-            correct_text = opts_list[correct]
-            if shuffle_options:
-                rng.shuffle(opts_list)
-            questions.append({
-                "area": area_name,
-                "question": q,
-                "options": opts_list,
-                "correct": opts_list.index(correct_text),
-            })
-    rng.shuffle(questions)
-    return questions
-
-def research_save_test(uid: int, test_type: str, course: str, answers: dict, questions: list | None = None):
-    """Guarda pretest/postest usando exactamente las preguntas mostradas al estudiante."""
-    questions = questions or research_get_questions(course, seed=0, shuffle_options=False)
-    total = len(questions)
-    correct = 0
-    detailed = []
-    for i, item in enumerate(questions):
-        selected = answers.get(str(i))
-        is_ok = selected == item["options"][item["correct"]]
-        correct += 1 if is_ok else 0
-        detailed.append({
-            "area": item["area"],
-            "question": item["question"],
-            "selected": selected,
-            "correct": item["options"][item["correct"]],
-            "is_correct": is_ok,
-        })
-    score = round(correct / max(1, total) * 100, 2)
-    with DB_LOCK:
-        execute("""INSERT INTO research_tests(student_id,test_type,course,score,total_questions,correct_answers,answers_json,started_at,created_at)
-                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (uid, test_type, course, score, total, correct, json.dumps(detailed, ensure_ascii=False), st.session_state.get(f"{test_type}_{course}_started_at", now()), now()))
-    return score, correct, total
-
-def research_survey_completed(uid: int, survey_type: str) -> bool:
-    row = fetchone("SELECT COUNT(*) AS n FROM research_surveys WHERE student_id=%s AND survey_type=%s", (uid, survey_type))
-    return bool(row and int(row.get("n") or 0) >= len(RESEARCH_SURVEY_ITEMS))
-
-def research_save_survey(uid: int, survey_type: str, scores: dict):
-    with DB_LOCK:
-        execute("DELETE FROM research_surveys WHERE student_id=%s AND survey_type=%s", (uid, survey_type))
-        for code, construct, _text in RESEARCH_SURVEY_ITEMS:
-            execute("""INSERT INTO research_surveys(student_id,survey_type,question_code,construct,score,created_at)
-                       VALUES(%s,%s,%s,%s,%s,%s)""",
-                    (uid, survey_type, code, construct, int(scores.get(code, 3)), now()))
-
-def infer_bloom_level(question: str) -> str:
-    q = (question or "").lower()
-    if any(w in q for w in ["demuestra", "justifica", "evalúa", "evalua", "compara", "analiza"]):
-        return "Analizar/Evaluar"
-    if any(w in q for w in ["resuelve", "calcula", "halla", "determina", "aplica"]):
-        return "Aplicar"
-    if any(w in q for w in ["explica", "interpreta", "describe", "qué significa", "que significa"]):
-        return "Comprender"
-    return "Recordar/Comprender"
-
-def infer_difficulty(level: str) -> str:
-    mapping = {"Inicial": "baja", "Básico": "media-baja", "Intermedio": "media", "Avanzado": "alta"}
-    return mapping.get(level or "Inicial", "media")
-
-def research_log_learning(uid: int, interaction_id, course: str, topic: str, subtopic: str, question: str, level: str):
-    with DB_LOCK:
-        execute("""INSERT INTO research_learning_logs(student_id,source_interaction_id,course,topic,subtopic,blooms_level,difficulty,session_label,created_at)
-                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (uid, interaction_id, course, topic, subtopic, infer_bloom_level(question), infer_difficulty(level), date.today().isoformat(), now()))
-
-def get_research_tables():
-    consents = _rows_to_df(fetchall("""
-        SELECT rc.*, u.username, p.first_names, p.last_names, p.course, p.teacher
-        FROM research_consents rc
-        JOIN users u ON u.id=rc.student_id
-        LEFT JOIN profiles p ON p.user_id=rc.student_id
-        ORDER BY rc.id DESC
-    """))
-    tests = _rows_to_df(fetchall("""
-        SELECT rt.*, u.username, p.first_names, p.last_names, p.course AS profile_course, p.teacher
-        FROM research_tests rt
-        JOIN users u ON u.id=rt.student_id
-        LEFT JOIN profiles p ON p.user_id=rt.student_id
-        ORDER BY rt.id DESC
-    """))
-    surveys = _rows_to_df(fetchall("""
-        SELECT rs.*, u.username, p.first_names, p.last_names, p.course, p.teacher
-        FROM research_surveys rs
-        JOIN users u ON u.id=rs.student_id
-        LEFT JOIN profiles p ON p.user_id=rs.student_id
-        ORDER BY rs.id DESC
-    """))
-    learning_logs = _rows_to_df(fetchall("""
-        SELECT rll.*, u.username, p.first_names, p.last_names, p.course AS profile_course, p.teacher
-        FROM research_learning_logs rll
-        JOIN users u ON u.id=rll.student_id
-        LEFT JOIN profiles p ON p.user_id=rll.student_id
-        ORDER BY rll.id DESC
-    """))
-    return consents, tests, surveys, learning_logs
-
-def build_learning_gain_df() -> pd.DataFrame:
-    tests = _rows_to_df(fetchall("""
-        SELECT student_id, test_type, course, score, correct_answers, total_questions, created_at
-        FROM research_tests
-        ORDER BY created_at ASC
-    """))
-    if tests.empty:
-        return pd.DataFrame(columns=["student_id", "course", "pretest", "posttest", "gain", "gain_percent"])
-    tests["course"] = tests["course"].fillna("Sin materia")
-    latest = tests.sort_values("created_at").groupby(["student_id", "course", "test_type"], as_index=False).tail(1)
-    pivot = latest.pivot(index=["student_id", "course"], columns="test_type", values="score").reset_index()
-    if "pretest" not in pivot.columns: pivot["pretest"] = None
-    if "posttest" not in pivot.columns: pivot["posttest"] = None
-    pivot["gain"] = pd.to_numeric(pivot["posttest"], errors="coerce") - pd.to_numeric(pivot["pretest"], errors="coerce")
-    pivot["gain_percent"] = pivot["gain"].round(2)
-
-    usage = _rows_to_df(fetchall("""
-        SELECT user_id AS student_id,
-               topic AS course,
-               COUNT(*) FILTER (WHERE role='user') AS questions_count,
-               COUNT(DISTINCT DATE(created_at::timestamp)) AS active_days,
-               AVG(latency_ms) AS avg_latency_ms
-        FROM interactions
-        GROUP BY user_id, topic
-    """))
-    if not usage.empty:
-        usage["course"] = usage["course"].fillna("Sin materia")
-        pivot = pivot.merge(usage, on=["student_id", "course"], how="left")
-    profiles = _rows_to_df(fetchall("""
-        SELECT u.id AS student_id, u.username, p.first_names, p.last_names, p.course AS profile_course, p.teacher, p.level
-        FROM users u LEFT JOIN profiles p ON p.user_id=u.id
-    """))
-    if not profiles.empty:
-        pivot = pivot.merge(profiles, on="student_id", how="left")
-    return pivot
-
-def render_research_test_form(uid: int, prof: dict, test_type: str):
-    label = "Pretest diagnóstico" if test_type == "pretest" else "Postest final"
-    st.markdown(
-        f"<div class='teacher-card'><h3>{label}</h3><p class='small'>Selecciona una materia. El instrumento mostrará únicamente preguntas de esa área y las opciones se verán con contraste claro.</p></div>",
-        unsafe_allow_html=True,
-    )
-
-    available_subjects = list(RESEARCH_TEST_BANK.keys())
-    default_subject = prof.get("course") if prof.get("course") in available_subjects else available_subjects[0]
-    subject = st.selectbox(
-        "Materia a evaluar",
-        available_subjects,
-        index=available_subjects.index(default_subject),
-        key=f"{test_type}_research_subject",
-    )
-
-    st.markdown(
-        f"<div class='research-subject-note'><b>Materia seleccionada:</b> {subject}<br>"
-        f"El {label.lower()} se guardará de forma independiente para esta materia.</div>",
-        unsafe_allow_html=True,
-    )
-
-    existing = research_get_test(uid, test_type, subject)
-    if existing:
-        st.success(f"{label} de {subject} ya registrado. Puntaje: {float(existing.get('score') or 0):.2f}%")
-        st.caption("Para conservar el rigor científico, cada estudiante debe registrar una sola prueba por materia.")
-        return
-
-    if test_type == "posttest" and not research_get_test(uid, "pretest", subject):
-        st.warning(f"Primero completa el pretest de {subject} para conservar el rigor científico del estudio.")
-        return
-
-    seed_key = f"{test_type}_{subject}_question_seed"
-    question_key = f"{test_type}_{subject}_questions"
-    if seed_key not in st.session_state:
-        st.session_state[seed_key] = int(time.time() * 1000) % 10_000_000
-    if st.button(f"Generar nueva versión de preguntas para {subject}", key=f"refresh_{test_type}_{subject}", use_container_width=True):
-        st.session_state[seed_key] = int(time.time() * 1000) % 10_000_000
-        st.session_state.pop(question_key, None)
-        st.rerun()
-
-    if f"{test_type}_{subject}_started_at" not in st.session_state:
-        st.session_state[f"{test_type}_{subject}_started_at"] = now()
-
-    if question_key not in st.session_state:
-        st.session_state[question_key] = research_get_questions(subject, seed=st.session_state[seed_key], shuffle_options=True)
-
-    questions = st.session_state[question_key]
-
-    with st.form(f"{test_type}_{subject}_research_form"):
-        answers = {}
-        for i, item in enumerate(questions):
-            st.markdown(
-                f"<div class='research-question-card'><strong>{i+1}. {item['question']}</strong></div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown("<div class='exam-answer-select'><div class='exam-answer-help'>Selecciona una respuesta:</div>", unsafe_allow_html=True)
-            answers[str(i)] = st.selectbox(
-                "Respuesta",
-                ["-- Seleccione una opción --"] + list(item["options"]),
-                key=f"{test_type}_{subject}_{st.session_state[seed_key]}_{i}",
-                label_visibility="collapsed",
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
-        submitted = st.form_submit_button(f"Guardar {label} de {subject}", use_container_width=True)
-        if submitted:
-            pending = [k for k, v in answers.items() if not v or str(v).startswith("-- Seleccione")]
-            if pending:
-                st.warning("Por favor responde todas las preguntas antes de guardar la prueba.")
-            else:
-                score, correct, total = research_save_test(uid, test_type, subject, answers, questions=questions)
-                st.success(f"{label} de {subject} guardado: {correct}/{total} respuestas correctas ({score:.2f}%).")
-                st.rerun()
-
-def render_research_survey(uid: int, survey_type: str):
-    label = "Encuesta inicial" if survey_type == "initial" else "Encuesta final"
-    st.markdown(f"<div class='teacher-card'><h3>{label} psicoeducativa</h3><p class='small'>Escala Likert: 1 = Totalmente en desacuerdo, 5 = Totalmente de acuerdo.</p></div>", unsafe_allow_html=True)
-    if research_survey_completed(uid, survey_type):
-        st.success(f"{label} ya registrada.")
-        return
-    with st.form(f"{survey_type}_survey_form"):
-        scores = {}
-        for code, construct, item in RESEARCH_SURVEY_ITEMS:
-            scores[code] = st.slider(f"{code}. {item}", 1, 5, 3, key=f"{survey_type}_{code}")
-        submitted = st.form_submit_button(f"Guardar {label}", use_container_width=True)
-        if submitted:
-            research_save_survey(uid, survey_type, scores)
-            st.success(f"{label} guardada correctamente.")
-            st.rerun()
-
-def research_page(user, prof):
-    st.markdown("<div class='hero'>" + bunseki_logo_html("Módulo de investigación", "Pretest, postest, encuestas y consentimiento para evidencia científica") + "</div>", unsafe_allow_html=True)
-    st.info("Este módulo permite recolectar datos reales para evaluar el efecto de BunsekiChat en el aprendizaje matemático universitario. Los datos deben analizarse de forma anonimizada.")
-
-    if not research_has_consent(user["id"]):
-        st.markdown("<div class='teacher-card'><h3>Consentimiento informado</h3></div>", unsafe_allow_html=True)
-        st.write(CONSENT_TEXT)
-        accepted = st.checkbox("Acepto participar voluntariamente y autorizo el uso anonimizado de mis datos académicos para investigación.")
-        if st.button("Guardar consentimiento", disabled=not accepted, use_container_width=True):
-            research_save_consent(user["id"])
-            st.success("Consentimiento registrado.")
-            st.rerun()
-        st.stop()
-
-    tabs = st.tabs(["1. Encuesta inicial", "2. Pretest", "3. Postest", "4. Encuesta final", "5. Mi avance"])
-    with tabs[0]:
-        render_research_survey(user["id"], "initial")
-    with tabs[1]:
-        render_research_test_form(user["id"], prof, "pretest")
-    with tabs[2]:
-        render_research_test_form(user["id"], prof, "posttest")
-    with tabs[3]:
-        if not research_get_test(user["id"], "posttest"):
-            st.warning("La encuesta final debe completarse después de realizar al menos un postest.")
-        else:
-            render_research_survey(user["id"], "final")
-    with tabs[4]:
-        rows = fetchall("""
-            SELECT course, test_type, score, correct_answers, total_questions, created_at
-            FROM research_tests
-            WHERE student_id=%s
-            ORDER BY course, created_at
-        """, (user["id"],))
-        df_tests = pd.DataFrame(rows or [])
-        if df_tests.empty:
-            st.info("Aún no tienes pretest o postest registrados.")
-        else:
-            latest = df_tests.sort_values("created_at").groupby(["course", "test_type"], as_index=False).tail(1)
-            pivot = latest.pivot(index="course", columns="test_type", values="score").reset_index()
-            if "pretest" not in pivot.columns:
-                pivot["pretest"] = None
-            if "posttest" not in pivot.columns:
-                pivot["posttest"] = None
-            pivot["ganancia"] = pd.to_numeric(pivot["posttest"], errors="coerce") - pd.to_numeric(pivot["pretest"], errors="coerce")
-            st.dataframe(pivot, use_container_width=True)
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Materias con pretest", int(pivot["pretest"].notna().sum()))
-            c2.metric("Materias con postest", int(pivot["posttest"].notna().sum()))
-            avg_gain = pd.to_numeric(pivot["ganancia"], errors="coerce").mean()
-            c3.metric("Ganancia promedio", "Pendiente" if pd.isna(avg_gain) else f"{avg_gain:.1f} pts")
-        st.caption("Para el paper se analizará la ganancia de aprendizaje por materia junto con frecuencia de uso, consultas y variables psicoeducativas.")
-
-def render_research_dashboard():
-    st.markdown("<div class='teacher-card'><h3>🔬 Dashboard de investigación Q1/Q2</h3><p class='small'>Exporta datos anonimizables para SPSS, Jamovi, R o Python.</p></div>", unsafe_allow_html=True)
-    consents, tests, surveys, learning_logs = get_research_tables()
-    gain_df = build_learning_gain_df()
-
-    k1, k2, k3, k4 = st.columns(4)
-    k1.markdown(f"<div class='metric'><b>{consents['student_id'].nunique() if not consents.empty and 'student_id' in consents.columns else 0}</b><br><span>Consentimientos</span></div>", unsafe_allow_html=True)
-    k2.markdown(f"<div class='metric'><b>{len(tests[tests['test_type'].eq('pretest')]) if not tests.empty and 'test_type' in tests.columns else 0}</b><br><span>Pretest</span></div>", unsafe_allow_html=True)
-    k3.markdown(f"<div class='metric'><b>{len(tests[tests['test_type'].eq('posttest')]) if not tests.empty and 'test_type' in tests.columns else 0}</b><br><span>Postest</span></div>", unsafe_allow_html=True)
-    avg_gain = pd.to_numeric(gain_df.get("gain", pd.Series(dtype=float)), errors="coerce").mean() if not gain_df.empty else 0
-    k4.markdown(f"<div class='metric'><b>{0 if pd.isna(avg_gain) else avg_gain:.1f}</b><br><span>Ganancia promedio</span></div>", unsafe_allow_html=True)
-
-    if not gain_df.empty:
-        st.subheader("Ganancia de aprendizaje")
-        st.dataframe(gain_df, use_container_width=True, height=280)
-        numeric_gain = gain_df.dropna(subset=["pretest", "posttest"])
-        if not numeric_gain.empty and "questions_count" in numeric_gain.columns:
-            fig = px.scatter(numeric_gain, x="questions_count", y="gain", color="course" if "course" in numeric_gain.columns else None,
-                             hover_name="username" if "username" in numeric_gain.columns else None,
-                             title="Relación entre uso del tutor y ganancia de aprendizaje")
-            st.plotly_chart(fig, use_container_width=True)
-
-    if not gain_df.empty and "course" in gain_df.columns:
-        st.subheader("Resultados por materia")
-        subject_summary = (
-            gain_df.groupby("course", dropna=False)
-            .agg(
-                estudiantes=("student_id", "nunique"),
-                pretest_promedio=("pretest", "mean"),
-                postest_promedio=("posttest", "mean"),
-                ganancia_promedio=("gain", "mean"),
-            )
-            .reset_index()
-        )
-        for col in ["pretest_promedio", "postest_promedio", "ganancia_promedio"]:
-            subject_summary[col] = pd.to_numeric(subject_summary[col], errors="coerce").round(2)
-        st.dataframe(subject_summary, use_container_width=True, height=220)
-
-    st.subheader("Exportaciones científicas")
-    e1, e2, e3, e4 = st.columns(4)
-    e1.download_button("CSV consentimientos", consents.to_csv(index=False).encode("utf-8-sig"), "research_consents.csv", "text/csv", use_container_width=True)
-    e2.download_button("CSV tests", tests.to_csv(index=False).encode("utf-8-sig"), "research_tests.csv", "text/csv", use_container_width=True)
-    e3.download_button("CSV encuestas", surveys.to_csv(index=False).encode("utf-8-sig"), "research_surveys.csv", "text/csv", use_container_width=True)
-    e4.download_button("CSV ganancia", gain_df.to_csv(index=False).encode("utf-8-sig"), "research_learning_gain.csv", "text/csv", use_container_width=True)
-
-    with st.expander("Ver tablas completas de investigación"):
-        st.write("Consentimientos")
-        st.dataframe(consents, use_container_width=True, height=220)
-        st.write("Pretest/Postest")
-        st.dataframe(tests, use_container_width=True, height=260)
-        st.write("Encuestas Likert")
-        st.dataframe(surveys, use_container_width=True, height=260)
-        st.write("Learning analytics enriquecido")
-        st.dataframe(learning_logs, use_container_width=True, height=260)
 
 
 # ---------------- Control de lenguaje y sugerencias ----------------
@@ -1949,34 +1561,38 @@ def _clean_report_df(df: pd.DataFrame) -> pd.DataFrame:
 def get_teacher_tables():
     users_rows = fetchall("""
         SELECT u.id,u.username,u.role,u.active,u.created_at,u.last_login,
-               p.first_names,p.last_names,p.course,p.teacher,p.province,p.city,p.level
+               p.first_names,p.last_names,p.course,p.subject,p.course_level,p.parallel,p.shift,p.cohort,p.full_name_normalized,
+               p.teacher,p.province,p.city,p.level
         FROM users u LEFT JOIN profiles p ON p.user_id=u.id
         ORDER BY u.id DESC
     """)
     logs_rows = fetchall("""
-        SELECT i.*,u.username,p.first_names,p.last_names,p.course,p.teacher,p.level AS profile_level
+        SELECT i.*,u.username,p.first_names,p.last_names,p.course,p.subject,p.course_level,p.parallel,p.shift,p.cohort,
+               p.teacher,p.level AS profile_level
         FROM interactions i
         JOIN users u ON u.id=i.user_id
         LEFT JOIN profiles p ON p.user_id=i.user_id
         ORDER BY i.id DESC
     """)
     quizzes_rows = fetchall("""
-        SELECT q.*,u.username,p.first_names,p.last_names,p.course,p.teacher,p.level AS profile_level
+        SELECT q.*,u.username,p.first_names,p.last_names,p.course,p.subject,p.course_level,p.parallel,p.shift,p.cohort,
+               p.teacher,p.level AS profile_level
         FROM quizzes q
         JOIN users u ON u.id=q.user_id
         LEFT JOIN profiles p ON p.user_id=q.user_id
         ORDER BY q.id DESC
     """)
-    users = _rows_to_df(users_rows, ["id","username","role","active","created_at","last_login","first_names","last_names","course","teacher","province","city","level"])
-    logs = _rows_to_df(logs_rows, ["id","user_id","role","topic","subtopic","level","message","clean_message","model","tokens_est","latency_ms","created_at","username","first_names","last_names","course","teacher","profile_level","gps_lat","gps_lon","gps_accuracy","gps_source"])
-    quizzes = _rows_to_df(quizzes_rows, ["id","user_id","topic","level_from","level_to","score","passed","answers_json","created_at","username","first_names","last_names","course","teacher","profile_level"])
+    users = _rows_to_df(users_rows, ["id","username","role","active","created_at","last_login","first_names","last_names","course","subject","course_level","parallel","shift","cohort","full_name_normalized","teacher","province","city","level"])
+    logs = _rows_to_df(logs_rows, ["id","user_id","role","topic","subtopic","level","message","clean_message","model","tokens_est","latency_ms","created_at","username","first_names","last_names","course","subject","course_level","parallel","shift","cohort","teacher","profile_level","gps_lat","gps_lon","gps_accuracy","gps_source"])
+    quizzes = _rows_to_df(quizzes_rows, ["id","user_id","topic","level_from","level_to","score","passed","answers_json","created_at","username","first_names","last_names","course","subject","course_level","parallel","shift","cohort","teacher","profile_level"])
     return users, logs, quizzes
 
 
 def build_student_summary(uid: int):
     profile = fetchone("""
         SELECT u.id,u.username,u.role,u.active,u.created_at,u.last_login,
-               p.first_names,p.last_names,p.course,p.teacher,p.phone,p.province,p.city,p.canton,p.address,p.level
+               p.first_names,p.last_names,p.course,p.subject,p.course_level,p.parallel,p.shift,p.cohort,p.full_name_normalized,
+               p.teacher,p.phone,p.province,p.city,p.canton,p.address,p.level
         FROM users u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.id=%s
     """, (uid,)) or {"id": uid, "username": f"usuario_{uid}"}
 
@@ -2001,7 +1617,9 @@ def export_student_docx(uid: int) -> bytes:
     nombre = f"{profile.get('first_names') or ''} {profile.get('last_names') or ''}".strip()
     doc.add_paragraph(f"Estudiante: {nombre or profile.get('username','')}")
     doc.add_paragraph(f"Usuario: {profile.get('username','')}")
+    doc.add_paragraph(f"Materia: {profile.get('subject') or 'Sin materia'}")
     doc.add_paragraph(f"Curso: {profile.get('course') or 'Sin curso'}")
+    doc.add_paragraph(f"Cohorte: {profile.get('cohort') or profile.get('course') or 'Sin cohorte'}")
     doc.add_paragraph(f"Docente: {profile.get('teacher') or 'Sin docente'}")
     doc.add_paragraph(f"Nivel actual: {profile.get('level') or 'Sin nivel'}")
     doc.add_paragraph(f"Fecha de exportación: {now()}")
@@ -2048,7 +1666,8 @@ def export_student_pdf(uid: int) -> bytes:
     line("Reporte individual BunsekiChat", 16, True)
     nombre = f"{profile.get('first_names') or ''} {profile.get('last_names') or ''}".strip()
     line(f"Estudiante: {nombre or profile.get('username','')}", 10)
-    line(f"Usuario: {profile.get('username','')} | Curso: {profile.get('course') or 'Sin curso'} | Nivel: {profile.get('level') or 'Sin nivel'}", 10)
+    line(f"Usuario: {profile.get('username','')} | Materia: {profile.get('subject') or 'Sin materia'} | Curso: {profile.get('course') or 'Sin curso'}", 10)
+    line(f"Cohorte: {profile.get('cohort') or profile.get('course') or 'Sin cohorte'} | Nivel: {profile.get('level') or 'Sin nivel'}", 10)
     line(f"Docente: {profile.get('teacher') or 'Sin docente'} | Exportado: {now()}", 10)
     line("Consultas e interacciones", 13, True)
     if df.empty:
@@ -2063,6 +1682,668 @@ def export_student_pdf(uid: int) -> bytes:
     c.save()
     bio.seek(0)
     return bio.getvalue()
+
+
+# ---------------- Planes analíticos y evaluación adaptativa IA ----------------
+def _strip_code_fences(raw: str) -> str:
+    raw = (raw or "").strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.I)
+    raw = re.sub(r"\s*```$", "", raw)
+    return raw.strip()
+
+
+def _safe_json_loads(raw, default):
+    try:
+        return json.loads(_strip_code_fences(raw))
+    except Exception:
+        return default
+
+
+def read_uploaded_plan_text(uploaded_file) -> str:
+    """Extrae texto de TXT, DOCX o PDF sin romper la app si falta una librería."""
+    if uploaded_file is None:
+        return ""
+    name = uploaded_file.name.lower()
+    data = uploaded_file.read()
+    uploaded_file.seek(0)
+    if name.endswith(".txt") or name.endswith(".md"):
+        return data.decode("utf-8", errors="ignore")
+    if name.endswith(".docx"):
+        if Document is None:
+            return ""
+        try:
+            doc = Document(BytesIO(data))
+            return "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+        except Exception:
+            return ""
+    if name.endswith(".pdf"):
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(BytesIO(data))
+            return "\n".join([(page.extract_text() or "") for page in reader.pages])
+        except Exception:
+            try:
+                from PyPDF2 import PdfReader
+                reader = PdfReader(BytesIO(data))
+                return "\n".join([(page.extract_text() or "") for page in reader.pages])
+            except Exception:
+                return ""
+    return data.decode("utf-8", errors="ignore")
+
+
+def parse_plan_topics_with_ai(raw_text: str, title: str = "") -> dict:
+    """Convierte un plan analítico en unidades/temas/resultados. Usa IA si hay API; si no, fallback robusto."""
+    raw_text = (raw_text or "")[:24000]
+    fallback_topics = []
+    # fallback por líneas con palabras académicas frecuentes
+    for line in raw_text.splitlines():
+        clean = re.sub(r"\s+", " ", line).strip(" -•\t")
+        if 8 <= len(clean) <= 160 and any(w in clean.lower() for w in ["unidad", "tema", "resultado", "competencia", "contenido", "aprendizaje", "objetivo"]):
+            fallback_topics.append({
+                "unit_name": clean[:80],
+                "topic": clean[:90],
+                "subtopic": "",
+                "learning_outcome": "Comprender y aplicar el contenido del plan analítico.",
+                "bloom_level": "Comprender/Aplicar",
+                "keywords": clean
+            })
+        if len(fallback_topics) >= 12:
+            break
+    if not fallback_topics:
+        fallback_topics = [{
+            "unit_name": "Unidad general",
+            "topic": title or "Contenido del plan analítico",
+            "subtopic": "",
+            "learning_outcome": "Comprender, aplicar y evaluar los contenidos del plan.",
+            "bloom_level": "Comprender/Aplicar",
+            "keywords": title or "plan analítico"
+        }]
+
+    client = ai_client()
+    if not client:
+        return {"summary": "Plan cargado con extracción básica local.", "topics": fallback_topics}
+
+    prompt = f"""
+Actúa como diseñador curricular universitario.
+Analiza este plan analítico y devuelve SOLO JSON válido con esta estructura:
+{{
+  "summary": "resumen breve",
+  "topics": [
+    {{
+      "unit_name": "Unidad 1",
+      "topic": "tema principal",
+      "subtopic": "subtema",
+      "learning_outcome": "resultado de aprendizaje evaluable",
+      "bloom_level": "Recordar/Comprender/Aplicar/Analizar/Evaluar/Crear",
+      "keywords": "palabras clave separadas por coma"
+    }}
+  ]
+}}
+Máximo 18 topics. No uses markdown.
+
+Título: {title}
+PLAN:
+{raw_text}
+"""
+    try:
+        resp = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt)
+        parsed = _safe_json_loads(resp.text, {})
+        if isinstance(parsed, dict) and isinstance(parsed.get("topics"), list) and parsed["topics"]:
+            return parsed
+    except Exception:
+        pass
+    return {"summary": "Plan cargado con extracción básica local.", "topics": fallback_topics}
+
+
+def save_analytic_plan(title, course, teacher_id, filename, raw_text, parsed, academic_context=None):
+    academic_context = academic_context or {}
+    row = execute("""
+        INSERT INTO analytic_plans(title, course, subject, course_level, parallel, shift, teacher_id, filename, raw_text, summary, created_at)
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+    """, (
+        title, course,
+        academic_context.get("subject"), academic_context.get("course_level"),
+        academic_context.get("parallel"), academic_context.get("shift"),
+        teacher_id, filename, raw_text, parsed.get("summary",""), now()
+    ), returning=True)
+    plan_id = row["id"]
+    for item in parsed.get("topics", []):
+        execute("""
+            INSERT INTO plan_topics(plan_id, unit_name, topic, subtopic, learning_outcome, bloom_level, keywords)
+            VALUES(%s,%s,%s,%s,%s,%s,%s)
+        """, (
+            plan_id,
+            item.get("unit_name",""),
+            item.get("topic",""),
+            item.get("subtopic",""),
+            item.get("learning_outcome",""),
+            item.get("bloom_level",""),
+            item.get("keywords",""),
+        ))
+    return plan_id
+
+
+def get_analytic_plans():
+    return fetchall("""
+        SELECT p.*, u.username AS teacher_username
+        FROM analytic_plans p
+        LEFT JOIN users u ON u.id=p.teacher_id
+        ORDER BY p.id DESC
+    """)
+
+
+def get_plan_topics(plan_id=None):
+    if plan_id:
+        return fetchall("SELECT * FROM plan_topics WHERE plan_id=%s ORDER BY id", (plan_id,))
+    return fetchall("""
+        SELECT pt.*, p.title AS plan_title, p.course AS plan_course, p.subject AS plan_subject
+        FROM plan_topics pt
+        JOIN analytic_plans p ON p.id=pt.plan_id
+        ORDER BY p.id DESC, pt.id
+    """)
+
+
+def get_student_consultation_profile(uid: int) -> dict:
+    rows = interactions(uid)
+    user_rows = [r for r in rows if str(r.get("role","")).lower() == "user"]
+    topic_counts = {}
+    subtopic_counts = {}
+    recent_messages = []
+    for r in user_rows:
+        t = r.get("topic") or "General"
+        s = r.get("subtopic") or ""
+        topic_counts[t] = topic_counts.get(t, 0) + 1
+        if s:
+            subtopic_counts[s] = subtopic_counts.get(s, 0) + 1
+        if r.get("message"):
+            recent_messages.append(str(r.get("message"))[:500])
+    ranked_topics = sorted(topic_counts, key=topic_counts.get, reverse=True)
+    ranked_subtopics = sorted(subtopic_counts, key=subtopic_counts.get, reverse=True)
+    return {
+        "topic_counts": topic_counts,
+        "ranked_topics": ranked_topics,
+        "ranked_subtopics": ranked_subtopics,
+        "recent_messages": recent_messages[-8:],
+        "total_questions": len(user_rows),
+    }
+
+
+def is_research_quiz(quiz_type):
+    return str(quiz_type or "").lower() in {"pretest", "posttest"}
+
+
+def quiz_type_label(quiz_type):
+    return RESEARCH_TEST_TYPES.get(str(quiz_type or "adaptive").lower(), "Evaluación adaptativa")
+
+
+def local_research_question_pool(subject):
+    key = strip_accents(subject).lower()
+    if "calculo diferencial" in key or "calculo" in key:
+        return [dict(q) for q in DIFFERENTIAL_CALCULUS_QUESTION_BANK]
+    return []
+
+
+def fallback_questions(n_questions, base_topics=None, assessment_context=None):
+    assessment_context = assessment_context or {}
+    pool = local_research_question_pool(assessment_context.get("subject", ""))
+    if pool:
+        return pool
+    base_topics = [x for x in (base_topics or []) if x] or [assessment_context.get("subject") or "Matemáticas"]
+    fallback = []
+    for i in range(int(n_questions)):
+        t = base_topics[i % len(base_topics)] if base_topics else "Matemáticas"
+        fallback.append({
+            "question": f"Pregunta {i+1}: Resuelve o explica un concepto clave relacionado con {t}.",
+            "options": [
+                f"Aplicar correctamente el procedimiento de {t}",
+                "Elegir una respuesta sin justificar",
+                "Ignorar las condiciones del problema",
+                "Usar una fórmula no relacionada",
+            ],
+            "correct_answer": f"Aplicar correctamente el procedimiento de {t}",
+            "explanation": f"La respuesta correcta debe usar el procedimiento o concepto central de {t}.",
+            "bloom_level": "Aplicar",
+            "topic": t,
+        })
+    return fallback
+
+
+def make_assessment_seed(uid, quiz_type, academic_context, salt=None):
+    context = academic_context or {}
+    raw = "|".join([
+        str(uid),
+        str(quiz_type or "adaptive"),
+        str(context.get("subject", "")),
+        str(context.get("course_level", "")),
+        str(context.get("parallel", "")),
+        str(context.get("shift", "")),
+        str(salt or time.time_ns()),
+    ])
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def normalize_question_payload(question):
+    if not isinstance(question, dict):
+        return None
+    opts = [normalize_spaces(o) for o in question.get("options", []) if normalize_spaces(o)]
+    correct = normalize_spaces(question.get("correct_answer", ""))
+    if correct and correct not in opts:
+        opts.append(correct)
+    opts = list(dict.fromkeys(opts))
+    if len(opts) > 4:
+        opts = opts[:4] if correct in opts[:4] else opts[:3] + [correct]
+    if len(opts) < 2 or not correct:
+        return None
+    question_text = normalize_spaces(question.get("question", ""))
+    if not question_text:
+        return None
+    return {
+        "question": question_text,
+        "options": opts,
+        "correct_answer": correct,
+        "explanation": normalize_spaces(question.get("explanation", "")),
+        "bloom_level": normalize_spaces(question.get("bloom_level", "Aplicar")) or "Aplicar",
+        "topic": normalize_spaces(question.get("topic", "")),
+    }
+
+
+def randomize_questions_for_student(questions, uid, quiz_type, n_questions, seed):
+    rng = random.Random(seed)
+    clean = []
+    seen = set()
+    for q in questions:
+        item = normalize_question_payload(q)
+        if not item:
+            continue
+        key = strip_accents(item["question"]).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        opts = item["options"][:]
+        rng.shuffle(opts)
+        item["options"] = opts
+        clean.append(item)
+    rng.shuffle(clean)
+    return clean[:int(n_questions)]
+
+
+def generate_questions_with_ai(uid: int, plan_id=None, difficulty="Intermedio", n_questions=10, retry_focus=None, assessment_context=None):
+    assessment_context = assessment_context or {}
+    quiz_type = assessment_context.get("quiz_type", "adaptive")
+    profile = get_student_consultation_profile(uid)
+    plan_topics = get_plan_topics(plan_id) if plan_id else get_plan_topics()
+    plan_context = "\n".join([
+        f"- {x.get('unit_name','')} | {x.get('topic','')} | {x.get('subtopic','')} | Resultado: {x.get('learning_outcome','')} | Bloom: {x.get('bloom_level','')}"
+        for x in plan_topics[:60]
+    ])
+    consulted = ", ".join(profile["ranked_topics"][:5] + profile["ranked_subtopics"][:5]) or "sin historial suficiente"
+    recent = "\n".join([f"- {m}" for m in profile["recent_messages"]])
+    base_topics = profile["ranked_topics"] or [x.get("topic") for x in plan_topics if x.get("topic")] or list(TOPICS.keys())
+    fallback = fallback_questions(n_questions, base_topics, assessment_context)
+
+    client = ai_client()
+    if not client:
+        return fallback
+
+    research_rules = ""
+    if is_research_quiz(quiz_type):
+        research_rules = f"""
+MODO INVESTIGACIÓN:
+- Tipo de instrumento: {quiz_type_label(quiz_type)}.
+- Título del estudio: {RESEARCH_TITLE}.
+- Materia: {assessment_context.get('subject') or 'Cálculo diferencial'}.
+- Curso: {assessment_context.get('course_level') or ''}.
+- Paralelo: {assessment_context.get('parallel') or ''}.
+- Jornada: {assessment_context.get('shift') or ''}.
+- Genera exactamente {int(n_questions)} preguntas equivalentes en dificultad para comparar pretest y posttest.
+- Si es pretest, evalúa saberes previos sin depender del historial de consultas.
+- Si es posttest, evalúa las mismas competencias con enunciados no idénticos al pretest.
+"""
+
+    prompt = f"""
+Eres un experto en evaluación educativa adaptativa, matemática universitaria y taxonomía de Bloom.
+Genera {int(n_questions)} preguntas tipo test para BunsekiChat. Deben evaluar lo que el estudiante ha consultado y alinearse al plan analítico.
+
+CONDICIONES:
+- Devuelve SOLO JSON válido, sin markdown.
+- Cada pregunta debe tener 4 opciones.
+- Debe existir correct_answer igual a una de las opciones.
+- Nivel de dificultad: {difficulty}.
+- Si el estudiante no obtiene 70%, estas preguntas se usarán para reforzar y generar nuevos intentos.
+- Incluye explicación pedagógica breve.
+- Usa lenguaje claro en español.
+{research_rules}
+
+JSON:
+[
+  {{
+    "question": "texto de la pregunta",
+    "options": ["A", "B", "C", "D"],
+    "correct_answer": "A",
+    "explanation": "explicación",
+    "bloom_level": "Aplicar",
+    "topic": "tema evaluado"
+  }}
+]
+
+PLAN ANALÍTICO:
+{plan_context}
+
+TEMAS CONSULTADOS POR EL ESTUDIANTE:
+{consulted}
+
+CONSULTAS RECIENTES:
+{recent}
+
+FOCO DE REINTENTO SI APLICA:
+{retry_focus or "Ninguno"}
+"""
+    try:
+        resp = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        parsed = _safe_json_loads(resp.text, [])
+        if isinstance(parsed, list) and parsed:
+            clean = []
+            for q in parsed[:int(n_questions)]:
+                opts = q.get("options") or []
+                if len(opts) >= 2 and q.get("correct_answer") in opts:
+                    clean.append({
+                        "question": str(q.get("question","")).strip(),
+                        "options": [str(o) for o in opts[:4]],
+                        "correct_answer": str(q.get("correct_answer","")),
+                        "explanation": str(q.get("explanation","")),
+                        "bloom_level": str(q.get("bloom_level","Aplicar")),
+                        "topic": str(q.get("topic","")),
+                    })
+            if clean:
+                return clean
+    except Exception:
+        pass
+    return fallback
+
+
+def create_adaptive_quiz(uid, plan_id=None, difficulty="Intermedio", n_questions=10, parent_quiz_id=None, retry_focus=None, quiz_type="adaptive", academic_context=None):
+    academic_context = academic_context or {}
+    quiz_type = str(quiz_type or "adaptive").lower()
+    if is_research_quiz(quiz_type):
+        n_questions = RESEARCH_QUESTION_COUNT
+    prior_attempts = 1
+    if parent_quiz_id:
+        parent = fetchone("SELECT attempt_no FROM adaptive_quizzes WHERE id=%s", (parent_quiz_id,))
+        prior_attempts = int(parent.get("attempt_no", 1)) + 1 if parent else 2
+
+    assessment_context = {**academic_context, "quiz_type": quiz_type}
+    questions = generate_questions_with_ai(uid, plan_id, difficulty, n_questions, retry_focus, assessment_context)
+    if len(questions) < int(n_questions):
+        questions.extend(fallback_questions(n_questions, assessment_context=assessment_context))
+    random_seed = make_assessment_seed(uid, quiz_type, academic_context)
+    questions = randomize_questions_for_student(questions, uid, quiz_type, n_questions, random_seed)
+    title = "Evaluación adaptativa IA"
+    if is_research_quiz(quiz_type):
+        title = f"{quiz_type_label(quiz_type)} - {academic_context.get('subject') or 'Materia'}"
+    source_topic = ", ".join(sorted(set([q.get("topic","") for q in questions if q.get("topic")]))[:3])
+    row = execute("""
+        INSERT INTO adaptive_quizzes(
+            user_id, plan_id, title, quiz_type, source_topic, difficulty,
+            subject, course_level, parallel, shift, cohort, research_title,
+            question_count, random_seed, attempt_no, parent_quiz_id, status, created_at
+        )
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+    """, (
+        uid, plan_id, title, quiz_type, source_topic, difficulty,
+        academic_context.get("subject"), academic_context.get("course_level"),
+        academic_context.get("parallel"), academic_context.get("shift"),
+        academic_context.get("cohort") or academic_context.get("course"),
+        RESEARCH_TITLE if is_research_quiz(quiz_type) else "",
+        int(n_questions), random_seed, prior_attempts, parent_quiz_id, "generated", now()
+    ), returning=True)
+    quiz_id = row["id"]
+    for position, q in enumerate(questions, start=1):
+        execute("""
+            INSERT INTO adaptive_questions(quiz_id, question, options_json, correct_answer, position, topic, explanation, bloom_level)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (quiz_id, q["question"], json.dumps(q["options"], ensure_ascii=False), q["correct_answer"], position, q.get("topic",""), q.get("explanation",""), q.get("bloom_level","Aplicar")))
+    return quiz_id
+
+
+def load_adaptive_quiz(quiz_id):
+    quiz = fetchone("SELECT * FROM adaptive_quizzes WHERE id=%s", (quiz_id,))
+    questions = fetchall("SELECT * FROM adaptive_questions WHERE quiz_id=%s ORDER BY COALESCE(position, id), id", (quiz_id,))
+    for q in questions:
+        q["options"] = _safe_json_loads(q.get("options_json"), [])
+    return quiz, questions
+
+
+def get_latest_adaptive_quiz(uid, quiz_type=None):
+    if quiz_type:
+        return fetchone("SELECT * FROM adaptive_quizzes WHERE user_id=%s AND COALESCE(quiz_type,'adaptive')=%s ORDER BY id DESC LIMIT 1", (uid, quiz_type))
+    return fetchone("SELECT * FROM adaptive_quizzes WHERE user_id=%s ORDER BY id DESC LIMIT 1", (uid,))
+
+
+def grade_adaptive_quiz(quiz_id, answers: dict):
+    quiz, questions = load_adaptive_quiz(quiz_id)
+    total = max(1, len(questions))
+    correct = 0
+    weak_topics = []
+    for q in questions:
+        ans = answers.get(str(q["id"]), "")
+        ok = str(ans).strip() == str(q.get("correct_answer","")).strip()
+        if ok:
+            correct += 1
+        else:
+            weak_topics.append(q.get("question","")[:120])
+        execute("UPDATE adaptive_questions SET user_answer=%s, is_correct=%s WHERE id=%s", (ans, ok, q["id"]))
+    score = round(correct / total * 100, 2)
+    passed = score >= 70
+    recommendation = "Aprobado. Puedes avanzar al siguiente reto." if passed else "Refuerzo automático sugerido: revisa las preguntas falladas y genera un nuevo intento."
+    execute("""
+        UPDATE adaptive_quizzes
+        SET score=%s, passed=%s, status=%s, recommendation=%s, completed_at=%s
+        WHERE id=%s
+    """, (score, passed, "completed", recommendation, now(), quiz_id))
+    return score, passed, weak_topics, recommendation
+
+
+def render_teacher_plan_manager(user):
+    st.markdown("""
+    <div class='eval-hero'>
+        <h2>📚 Planes analíticos inteligentes</h2>
+        <p>Carga planes analíticos, sílabos o contenidos. BunsekiChat extrae temas, resultados de aprendizaje y niveles Bloom para crear evaluaciones adaptativas.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.container():
+        st.markdown("<div class='plan-upload-box'><b>Subir nuevo plan analítico</b></div>", unsafe_allow_html=True)
+        c1, c2 = st.columns([1.2, 1])
+        title = c1.text_input("Título del plan", placeholder="Ej. Cálculo diferencial - Unidad 1")
+        subject = c2.selectbox("Materia", unique_values(ACADEMIC_SUBJECTS), index=0)
+        p1, p2, p3 = st.columns(3)
+        with p1:
+            course_level = academic_selectbox("Curso / nivel", ACADEMIC_COURSE_LEVELS, ACADEMIC_COURSE_LEVELS[0], "plan_course_level", normalize_course_level)
+        with p2:
+            parallel = academic_selectbox("Paralelo", ACADEMIC_PARALLELS, ACADEMIC_PARALLELS[0], "plan_parallel", normalize_parallel)
+        with p3:
+            shift = academic_selectbox("Jornada", ACADEMIC_SHIFTS, ACADEMIC_SHIFTS[0], "plan_shift", normalize_shift)
+        course = build_course_label(course_level, parallel, shift)
+        uploaded = st.file_uploader("Archivo del plan analítico", type=["txt", "md", "docx", "pdf"])
+        if st.button("Procesar y guardar plan", use_container_width=True):
+            raw_text = read_uploaded_plan_text(uploaded)
+            if not title.strip():
+                st.warning("Escribe un título para el plan.")
+            elif not raw_text.strip():
+                st.warning("No se pudo extraer texto del archivo. Prueba con TXT/DOCX o instala pypdf para PDF.")
+            else:
+                parsed = parse_plan_topics_with_ai(raw_text, title)
+                academic_context = {
+                    "subject": normalize_academic_text(subject),
+                    "course_level": normalize_course_level(course_level),
+                    "parallel": normalize_parallel(parallel),
+                    "shift": normalize_shift(shift),
+                    "cohort": course,
+                }
+                plan_id = save_analytic_plan(title.strip(), course.strip(), user.get("id"), uploaded.name if uploaded else "", raw_text, parsed, academic_context)
+                st.success(f"Plan guardado correctamente. ID: {plan_id}. Temas extraídos: {len(parsed.get('topics', []))}")
+                st.rerun()
+
+    plans = pd.DataFrame(get_analytic_plans())
+    if plans.empty:
+        st.info("Aún no hay planes analíticos cargados.")
+        return
+
+    st.markdown("<div class='eval-card'><h3>Planes cargados</h3></div>", unsafe_allow_html=True)
+    plan_cols = [c for c in ["id","title","subject","course","course_level","parallel","shift","teacher_username","created_at","summary"] if c in plans.columns]
+    st.dataframe(plans[plan_cols], use_container_width=True, height=280)
+
+    plan_id = st.selectbox("Ver temas de un plan", plans["id"].tolist(), format_func=lambda x: f"{x} · {plans.loc[plans['id']==x,'title'].iloc[0]}")
+    topics_df = pd.DataFrame(get_plan_topics(int(plan_id)))
+    if not topics_df.empty:
+        st.dataframe(topics_df[["unit_name","topic","subtopic","learning_outcome","bloom_level","keywords"]], use_container_width=True, height=360)
+
+
+def render_student_adaptive_evaluation(user, prof, topic, subtopic):
+    academic_context = academic_context_from_profile(prof)
+    st.markdown("""
+    <div class='eval-hero'>
+        <h2>🧠 Evaluación e investigación</h2>
+        <p>Selecciona evaluación adaptativa, pretest o posttest. Los instrumentos de investigación usan 20 preguntas y quedan vinculados a materia, curso, paralelo y jornada.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    mode_label = st.radio(
+        "Tipo de evaluación",
+        ["Evaluación adaptativa", "Pretest", "Posttest"],
+        horizontal=True,
+        key="assessment_mode",
+    )
+    quiz_type = {
+        "Evaluación adaptativa": "adaptive",
+        "Pretest": "pretest",
+        "Posttest": "posttest",
+    }[mode_label]
+    research_mode = is_research_quiz(quiz_type)
+
+    profile = get_student_consultation_profile(user["id"])
+    a,b,c = st.columns(3)
+    a.markdown(f"<div class='metric'><b>{profile['total_questions']}</b><br><span>Consultas usadas</span></div>", unsafe_allow_html=True)
+    b.markdown(f"<div class='metric'><b>{academic_context.get('cohort')}</b><br><span>Cohorte</span></div>", unsafe_allow_html=True)
+    last_quiz = get_latest_adaptive_quiz(user["id"], quiz_type)
+    last_score = "N/D" if not last_quiz or last_quiz.get("score") is None else f"{float(last_quiz.get('score')):.0f}%"
+    c.markdown(f"<div class='metric'><b>{last_score}</b><br><span>{quiz_type_label(quiz_type)}</span></div>", unsafe_allow_html=True)
+
+    plans = pd.DataFrame(get_analytic_plans())
+    if not plans.empty and research_mode and "subject" in plans.columns:
+        subject_key = strip_accents(academic_context.get("subject", "")).lower()
+        filtered_plans = plans[
+            plans["subject"].fillna("").astype(str).map(lambda x: strip_accents(x).lower()).isin(["", subject_key])
+        ].copy()
+        if not filtered_plans.empty:
+            plans = filtered_plans
+    plan_options = [None] + (plans["id"].tolist() if not plans.empty else [])
+    plan_id = st.selectbox(
+        "Plan analítico base",
+        plan_options,
+        format_func=lambda x: "Todos los planes disponibles" if x is None else f"{x} · {plans.loc[plans['id']==x,'title'].iloc[0]}",
+    )
+    difficulty = st.selectbox("Dificultad", ["Inicial", "Básico", "Intermedio", "Avanzado"], index=2, disabled=research_mode)
+    n_questions = RESEARCH_QUESTION_COUNT if research_mode else st.slider("Número de preguntas", 5, 20, 10)
+
+    if research_mode:
+        st.markdown(
+            f"<div class='eval-card'><b>{quiz_type_label(quiz_type)} de investigación</b><br>"
+            f"<span class='eval-chip'>{academic_context.get('subject')}</span>"
+            f"<span class='eval-chip'>{academic_context.get('cohort')}</span>"
+            f"<span class='eval-chip'>{RESEARCH_QUESTION_COUNT} preguntas aleatorias</span></div>",
+            unsafe_allow_html=True,
+        )
+
+    if quiz_type == "posttest":
+        completed_pretest = get_latest_adaptive_quiz(user["id"], "pretest")
+        if not completed_pretest or completed_pretest.get("status") != "completed":
+            st.warning("El posttest se habilita cuando el estudiante haya completado el pretest.")
+            return
+
+    current_key = f"current_adaptive_quiz_id_{quiz_type}"
+    col1, col2 = st.columns(2)
+    can_generate = not (research_mode and last_quiz)
+    generate_label = f"Iniciar {quiz_type_label(quiz_type)}" if research_mode else "Generar nueva evaluación IA"
+    if col1.button(generate_label, use_container_width=True, disabled=not can_generate):
+        quiz_id = create_adaptive_quiz(user["id"], plan_id, difficulty, n_questions, quiz_type=quiz_type, academic_context=academic_context)
+        st.session_state[current_key] = quiz_id
+        st.rerun()
+    if research_mode and not can_generate:
+        if last_quiz.get("status") == "completed":
+            st.info(f"{quiz_type_label(quiz_type)} ya fue completado. El resultado queda registrado para la investigación.")
+        else:
+            st.info(f"{quiz_type_label(quiz_type)} ya fue generado. Completa el instrumento pendiente para conservar la trazabilidad.")
+
+    if not research_mode and last_quiz and last_quiz.get("status") == "completed" and not last_quiz.get("passed"):
+        if col2.button("Reintento automático por no alcanzar 70%", use_container_width=True):
+            _, questions = load_adaptive_quiz(last_quiz["id"])
+            weak = [q.get("question","") for q in questions if not q.get("is_correct")]
+            quiz_id = create_adaptive_quiz(
+                user["id"],
+                last_quiz.get("plan_id"),
+                difficulty,
+                n_questions,
+                parent_quiz_id=last_quiz["id"],
+                retry_focus="\n".join(weak[:5]),
+                quiz_type=quiz_type,
+                academic_context=academic_context
+            )
+            st.session_state[current_key] = quiz_id
+            st.rerun()
+
+    quiz_id = st.session_state.get(current_key) or (last_quiz.get("id") if last_quiz else None)
+    if not quiz_id:
+        st.info("Inicia una evaluación para comenzar.")
+        return
+
+    quiz, questions = load_adaptive_quiz(int(quiz_id))
+    if not quiz or not questions:
+        st.warning("No se pudo cargar la evaluación.")
+        return
+
+    st.markdown(
+        f"<div class='eval-card'><h3>{quiz.get('title','Evaluación adaptativa')}</h3>"
+        f"<span class='eval-chip'>Intento: {quiz.get('attempt_no',1)}</span>"
+        f"<span class='eval-chip'>Tipo: {quiz_type_label(quiz.get('quiz_type') or 'adaptive')}</span>"
+        f"<span class='eval-chip'>Dificultad: {quiz.get('difficulty','')}</span>"
+        f"<span class='eval-chip'>Estado: {quiz.get('status','')}</span>"
+        f"<span class='eval-chip'>Cohorte: {quiz.get('cohort') or academic_context.get('cohort')}</span>"
+        f"<span class='eval-chip'>Tema: {quiz.get('source_topic') or 'Adaptativo'}</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    if quiz.get("status") == "completed":
+        score = float(quiz.get("score") or 0)
+        cls = "eval-result-pass" if quiz.get("passed") else "eval-result-fail"
+        st.markdown(f"<div class='{cls}'>Resultado: {score:.0f}% · {'Aprobado' if quiz.get('passed') else 'No aprobado'} · {quiz.get('recommendation') or ''}</div>", unsafe_allow_html=True)
+        for q in questions:
+            icon = "✅" if q.get("is_correct") else "❌"
+            st.markdown(f"<div class='eval-question'><b>{icon} {q.get('question')}</b><br><span class='small'>Tu respuesta: {q.get('user_answer') or 'Sin respuesta'} · Correcta: {q.get('correct_answer')}</span><br><br>{q.get('explanation') or ''}</div>", unsafe_allow_html=True)
+        return
+
+    with st.form(f"adaptive_quiz_form_{quiz_id}"):
+        answers = {}
+        for i, q in enumerate(questions, start=1):
+            opts = q.get("options") or _safe_json_loads(q.get("options_json"), [])
+            st.markdown(f"<div class='eval-question'><b>{i}. {q.get('question')}</b><br><span class='eval-chip'>{q.get('bloom_level') or 'Aplicar'}</span></div>", unsafe_allow_html=True)
+            answers[str(q["id"])] = st.radio("Selecciona una respuesta", opts, key=f"adaptive_q_{quiz_id}_{q['id']}", label_visibility="collapsed")
+        submitted = st.form_submit_button("Calificar evaluación", use_container_width=True)
+
+    if submitted:
+        score, passed, weak_topics, recommendation = grade_adaptive_quiz(int(quiz_id), answers)
+        event_type = f"{quiz_type}_submitted"
+        gps_actual = capture_browser_gps(user['id'], page='evaluacion_ia', topic=topic, subtopic=subtopic, event_type=event_type, show_status=False)
+        log_location_event(user['id'], event_type, page='evaluacion_ia', topic=topic, subtopic=subtopic, gps=gps_actual)
+        if passed:
+            st.success(f"Resultado: {score:.0f}%. Aprobaste la evaluación.")
+        else:
+            if research_mode:
+                st.warning(f"Resultado registrado: {score:.0f}%.")
+            else:
+                st.warning(f"Resultado: {score:.0f}%. No alcanzaste el 70%. Se habilitó el reintento automático.")
+        st.rerun()
+
 
 # ---------------- Sidebar SaaS PRO por roles ----------------
 def sidebar_brand(role_label: str, subtitle: str):
@@ -2084,7 +2365,7 @@ def render_student_sidebar(prof):
     st.sidebar.markdown("<div class='saas-section-title'>Navegación</div>", unsafe_allow_html=True)
     page = st.sidebar.radio(
         "Menú del estudiante",
-        ["💬 Tutor", "📊 Investigación", "🎮 Prueba de nivel", "📈 Mi progreso", "📘 Descargar aprendizaje"],
+        ["💬 Tutor", "🧠 Evaluación IA", "📘 Descargar aprendizaje", "🎮 Prueba de nivel", "📈 Mi progreso"],
         label_visibility="collapsed",
         key="student_nav"
     )
@@ -2092,7 +2373,11 @@ def render_student_sidebar(prof):
     topic = st.sidebar.selectbox("Área", list(TOPICS.keys()), key="student_topic")
     subtopic = st.sidebar.selectbox("Subtema", TOPICS[topic], key="student_subtopic")
     level = prof.get("level") or "Inicial"
-    st.sidebar.markdown(f"<div class='saas-help-card'><b>Nivel actual:</b> {level}<br><b>Curso:</b> {prof.get('course') or 'Sin curso'}</div>", unsafe_allow_html=True)
+    academic_context = academic_context_from_profile(prof)
+    st.sidebar.markdown(
+        f"<div class='saas-help-card'><b>Nivel actual:</b> {level}<br><b>Materia:</b> {academic_context.get('subject') or 'Sin materia'}<br><b>Curso:</b> {academic_context.get('cohort') or 'Sin curso'}</div>",
+        unsafe_allow_html=True
+    )
     st.sidebar.markdown("<div class='saas-section-title'>Sesión</div>", unsafe_allow_html=True)
     if st.sidebar.button("Cerrar sesión", key="student_logout"):
         st.session_state.clear()
@@ -2104,7 +2389,7 @@ def render_teacher_sidebar():
     st.sidebar.markdown("<div class='saas-section-title'>Navegación</div>", unsafe_allow_html=True)
     page = st.sidebar.radio(
         "Menú docente",
-        ["📊 Dashboard docente PRO", "🔬 Investigación", "📥 Exportación", "👤 Seguimiento individual", "🧾 Datos completos", "⚙️ Configuración"],
+        ["📊 Dashboard docente PRO", "📚 Planes analíticos", "🧪 Investigación pre/post", "📥 Exportación", "👤 Seguimiento individual", "🧾 Datos completos", "⚙️ Configuración"],
         label_visibility="collapsed",
         key="teacher_nav"
     )
@@ -2183,22 +2468,26 @@ def login_page():
 
 def profile_page(user):
     prof=get_profile(user['id'])
+    academic_defaults = academic_context_from_profile(prof)
     gps_actual = capture_browser_gps(user['id'], page='Ficha inicial', event_type='app_open', show_status=True)
-    st.markdown("<div class='card'><h3>Ficha inicial del estudiante</h3><p class='small'>Estos datos permiten personalizar el acompañamiento académico. El navegador solicitará permiso para registrar GPS con fines académicos y mapas de calor.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='card'><h3>Ficha inicial del estudiante</h3><p class='small'>Registra datos oficiales. La app normaliza nombres, apellidos, materia, curso, paralelo y jornada para la investigación y los reportes.</p></div>", unsafe_allow_html=True)
     with st.form("perfil"):
         c1,c2,c3=st.columns(3)
         data={}
         with c1:
             data['first_names']=st.text_input("Nombres", prof.get('first_names') or '')
             data['last_names']=st.text_input("Apellidos", prof.get('last_names') or '')
-            data['birth_date']=str(st.date_input("Fecha de nacimiento", value=date(2005,1,1)))
-            data['course']=st.text_input("Curso", prof.get('course') or '')
+            data['birth_date']=str(st.date_input("Fecha de nacimiento", value=birth_date_value(prof.get('birth_date'))))
+            data['subject']=academic_selectbox("Materia", ACADEMIC_SUBJECTS, academic_defaults["subject"], "profile_subject")
         with c2:
+            data['course_level']=academic_selectbox("Curso / nivel", ACADEMIC_COURSE_LEVELS, academic_defaults["course_level"], "profile_course_level", normalize_course_level)
+            data['parallel']=academic_selectbox("Paralelo", ACADEMIC_PARALLELS, academic_defaults["parallel"], "profile_parallel", normalize_parallel)
+            data['shift']=academic_selectbox("Jornada", ACADEMIC_SHIFTS, academic_defaults["shift"], "profile_shift", normalize_shift)
             data['teacher']=st.text_input("Docente", prof.get('teacher') or '')
             data['phone']=st.text_input("Número celular", prof.get('phone') or '')
+        with c3:
             data['province']=st.text_input("Provincia", prof.get('province') or '')
             data['city']=st.text_input("Ciudad", prof.get('city') or '')
-        with c3:
             data['canton']=st.text_input("Cantón", prof.get('canton') or '')
             data['address']=st.text_area("Dirección", prof.get('address') or '')
             auto_lat = (gps_actual or {}).get('lat') if gps_actual else None
@@ -2208,16 +2497,34 @@ def profile_page(user):
             data['gps_accuracy']=str((gps_actual or {}).get('accuracy') or prof.get('gps_accuracy') or '')
         submitted=st.form_submit_button("Guardar ficha")
         if submitted:
-            data['profile_completed']=1; update_profile(user['id'], data); st.success("Ficha guardada."); st.rerun()
+            data['first_names'] = normalize_person_name(data.get('first_names'))
+            data['last_names'] = normalize_person_name(data.get('last_names'))
+            data['subject'] = normalize_academic_text(data.get('subject'))
+            data['course_level'] = normalize_course_level(data.get('course_level'))
+            data['parallel'] = normalize_parallel(data.get('parallel'))
+            data['shift'] = normalize_shift(data.get('shift'))
+            data['cohort'] = build_course_label(data['course_level'], data['parallel'], data['shift'])
+            data['course'] = data['cohort']
+            data['full_name_normalized'] = normalize_spaces(f"{data['first_names']} {data['last_names']}")
+            if not data['first_names'] or not data['last_names']:
+                st.warning("Ingresa nombres y apellidos oficiales del estudiante.")
+            elif not data['subject'] or not data['course_level'] or not data['parallel'] or not data['shift']:
+                st.warning("Completa materia, curso, paralelo y jornada.")
+            else:
+                data['profile_completed']=1
+                update_profile(user['id'], data)
+                st.success(f"Ficha guardada: {data['full_name_normalized']} · {data['subject']} · {data['cohort']}")
+                st.rerun()
     st.info("GPS automático activado con consentimiento del navegador. En producción debe ejecutarse en HTTPS; en desarrollo funciona en localhost.")
 
 def student_page(user):
     prof=get_profile(user['id'])
     if not prof.get('profile_completed'): return profile_page(user)
+    academic_context = academic_context_from_profile(prof)
     hero_html = (
         "<div class='hero'>"
-        + bunseki_logo_html(APP_NAME, 'Bienvenido/a, ' + str(prof.get('first_names') or '') + ' · Matemáticas universitarias')
-        + f"<div style='margin-top:12px'><span class='badge'>Nivel: {prof.get('level','Inicial')}</span></div>"
+        + bunseki_logo_html(APP_NAME, 'Bienvenido/a, ' + str(prof.get('first_names') or '') + ' · ' + academic_context.get('subject','Matemáticas universitarias'))
+        + f"<div style='margin-top:12px'><span class='badge'>Nivel: {prof.get('level','Inicial')}</span> <span class='badge'>{academic_context.get('cohort','Sin curso')}</span></div>"
         + "</div>"
     )
     st.markdown(hero_html, unsafe_allow_html=True)
@@ -2230,8 +2537,8 @@ def student_page(user):
     m3.markdown(f"<div class='metric'><b>{sum(r['tokens_est'] for r in rows)}</b><br><span>Tokens estimados</span></div>", unsafe_allow_html=True)
     m4.markdown(f"<div class='metric'><b>{level}</b><br><span>Nivel actual</span></div>", unsafe_allow_html=True)
 
-    if page == "📊 Investigación":
-        research_page(user, prof)
+    if page == "🧠 Evaluación IA":
+        render_student_adaptive_evaluation(user, prof, topic, subtopic)
         return
 
     if page == "📈 Mi progreso":
@@ -2306,73 +2613,24 @@ def student_page(user):
                 st.rerun()
             gps_actual = capture_browser_gps(user['id'], page=page, topic=topic, subtopic=subtopic, event_type='interaction', show_status=False)
             log_location_event(user['id'], 'chat_message', page=page, topic=topic, subtopic=subtopic, gps=gps_actual)
-            user_interaction_id = log_interaction(user['id'],'user',q,topic,subtopic,level,gps=gps_actual)
-            research_log_learning(user['id'], user_interaction_id, prof.get('course') or '', topic, subtopic, q, level)
+            log_interaction(user['id'],'user',q,topic,subtopic,level,gps=gps_actual)
             ans,model,ms=ask_ai(q,topic,subtopic,level,prof)
             log_interaction(user['id'],'assistant',ans,topic,subtopic,level,model,ms,gps=gps_actual)
             st.rerun()
     with right:
-        available_quiz_subjects = list(ADAPTIVE_QUIZ_BANK.keys())
-        default_quiz_subject = topic if topic in available_quiz_subjects else available_quiz_subjects[0]
-        quiz_subject = st.selectbox(
-            "Materia para la prueba adaptativa",
-            available_quiz_subjects,
-            index=available_quiz_subjects.index(default_quiz_subject),
-            key="adaptive_quiz_subject",
-        )
-
-        adaptive_seed_key = f"adaptive_quiz_seed_{quiz_subject}"
-        adaptive_items_key = f"adaptive_quiz_items_{quiz_subject}"
-        if adaptive_seed_key not in st.session_state:
-            st.session_state[adaptive_seed_key] = int(time.time() * 1000) % 10_000_000
-
-        if st.button("Generar nueva prueba adaptativa", key=f"refresh_adaptive_{quiz_subject}", use_container_width=True):
-            st.session_state[adaptive_seed_key] = int(time.time() * 1000) % 10_000_000
-            st.session_state.pop(adaptive_items_key, None)
-            st.rerun()
-
-        if adaptive_items_key not in st.session_state:
-            base_items = adaptive_quiz_for_user(user['id'], quiz_subject)
-            rng = random.Random(st.session_state[adaptive_seed_key])
-            generated = []
-            for q_topic, qdata in base_items:
-                q_text, opts, correct_idx = qdata
-                opts_list = list(opts)
-                correct_text = opts_list[correct_idx]
-                rng.shuffle(opts_list)
-                generated.append((q_topic, (q_text, opts_list, opts_list.index(correct_text))))
-            rng.shuffle(generated)
-            st.session_state[adaptive_items_key] = generated[:10]
-
-        quiz_items = st.session_state[adaptive_items_key]
-
+        quiz_items = adaptive_quiz_for_user(user['id'], topic)
         st.markdown(
             "<div class='quiz-card-premium'><h3>🎮 Prueba adaptativa para subir de nivel</h3>"
-            "<p class='small'>10 preguntas de la materia seleccionada. Aprueba con 70% o más.</p>"
-            f"<span class='quiz-topic-chip'>Materia: {quiz_subject}</span></div>",
+            "<p class='small'>10 preguntas según tu historial de consultas. Aprueba con 70% o más.</p>"
+            f"<span class='quiz-topic-chip'>Base actual: {topic}</span></div>",
             unsafe_allow_html=True,
         )
-        with st.form(f"quiz_{quiz_subject}_{st.session_state[adaptive_seed_key]}"):
+        with st.form("quiz"):
             answers = {}
             for i, (q_topic, qdata) in enumerate(quiz_items):
                 text, opts, correct = qdata
-                st.markdown(
-                    f"<div class='quiz-question-card'><strong>{i+1}. {text}</strong></div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown("<div class='exam-answer-select'><div class='exam-answer-help'>Selecciona una respuesta:</div>", unsafe_allow_html=True)
-                answers[str(i)] = st.selectbox(
-                    "Respuesta",
-                    ["-- Seleccione una opción --"] + list(opts),
-                    key=f"q_{quiz_subject}_{st.session_state[adaptive_seed_key]}_{i}",
-                    label_visibility="collapsed",
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
+                answers[str(i)] = st.radio(f"{i+1}. [{q_topic}] {text}", opts, key=f"q{i}")
             if st.form_submit_button("Calificar prueba"):
-                pending = [k for k, v in answers.items() if not v or str(v).startswith("-- Seleccione")]
-                if pending:
-                    st.warning("Por favor responde todas las preguntas antes de calificar la prueba.")
-                    st.stop()
                 total = max(1, len(quiz_items))
                 score = sum(
                     1 for i, (q_topic, qdata) in enumerate(quiz_items)
@@ -2385,85 +2643,15 @@ def student_page(user):
                     idx = min(LEVELS.index(old) + 1, len(LEVELS) - 1)
                     new = LEVELS[idx]
                     update_profile(user['id'], {'level': new})
-                gps_actual = capture_browser_gps(user['id'], page=page, topic=quiz_subject, subtopic=subtopic, event_type='quiz_submitted', show_status=False)
-                log_location_event(user['id'], 'quiz_submitted', page=page, topic=quiz_subject, subtopic=subtopic, gps=gps_actual)
-                save_quiz(user['id'], quiz_subject, old, new, score, passed, answers)
+                gps_actual = capture_browser_gps(user['id'], page=page, topic=topic, subtopic=subtopic, event_type='quiz_submitted', show_status=False)
+                log_location_event(user['id'], 'quiz_submitted', page=page, topic=topic, subtopic=subtopic, gps=gps_actual)
+                save_quiz(user['id'], topic, old, new, score, passed, answers)
                 st.success(f"Puntaje: {score:.0f}%. {'Subiste de nivel.' if passed else 'Sigue practicando.'}")
         df = pd.DataFrame(user_q)
         if not df.empty:
             fig = px.histogram(df, x='topic', title='Consultas por área')
             st.plotly_chart(fig, use_container_width=True)
 
-
-
-
-def get_all_gps_points():
-    """Consolida puntos GPS desde interactions, location_events y profiles."""
-    rows = fetchall("""
-        SELECT 
-            i.user_id,
-            u.username,
-            p.first_names,
-            p.last_names,
-            i.role,
-            i.topic,
-            i.subtopic,
-            i.created_at,
-            i.gps_lat,
-            i.gps_lon,
-            i.gps_accuracy,
-            i.gps_source,
-            'interaction' AS gps_origin
-        FROM interactions i
-        JOIN users u ON u.id = i.user_id
-        LEFT JOIN profiles p ON p.user_id = i.user_id
-        WHERE i.gps_lat IS NOT NULL 
-          AND i.gps_lon IS NOT NULL
-
-        UNION ALL
-
-        SELECT 
-            le.user_id,
-            u.username,
-            p.first_names,
-            p.last_names,
-            'location' AS role,
-            le.topic,
-            le.subtopic,
-            le.created_at,
-            le.gps_lat,
-            le.gps_lon,
-            le.gps_accuracy,
-            le.gps_source,
-            'location_event' AS gps_origin
-        FROM location_events le
-        JOIN users u ON u.id = le.user_id
-        LEFT JOIN profiles p ON p.user_id = le.user_id
-        WHERE le.gps_lat IS NOT NULL 
-          AND le.gps_lon IS NOT NULL
-
-        UNION ALL
-
-        SELECT
-            p.user_id,
-            u.username,
-            p.first_names,
-            p.last_names,
-            'profile' AS role,
-            NULL AS topic,
-            NULL AS subtopic,
-            p.last_gps_at AS created_at,
-            p.last_gps_lat AS gps_lat,
-            p.last_gps_lon AS gps_lon,
-            p.last_gps_accuracy AS gps_accuracy,
-            'profile_last_gps' AS gps_source,
-            'profile' AS gps_origin
-        FROM profiles p
-        JOIN users u ON u.id = p.user_id
-        WHERE p.last_gps_lat IS NOT NULL
-          AND p.last_gps_lon IS NOT NULL
-    """)
-    return pd.DataFrame(rows or [])
 
 def render_teacher_gps_heatmap(logs: pd.DataFrame, filtered_students: pd.DataFrame | None = None):
     """Mapa de calor docente basado en las coordenadas GPS guardadas en interactions.
@@ -2481,13 +2669,16 @@ def render_teacher_gps_heatmap(logs: pd.DataFrame, filtered_students: pd.DataFra
         st.info("Aún no existen interacciones para generar el mapa de calor GPS.")
         return
 
-    gps_df = get_all_gps_points()
+    gps_df = logs.copy()
 
     # Respeta los filtros de curso/docente/nivel aplicados al dashboard.
     if filtered_students is not None and not filtered_students.empty and "id" in filtered_students.columns:
         allowed_ids = set(filtered_students["id"].dropna().astype(int).tolist())
         gps_df = gps_df[gps_df["user_id"].isin(allowed_ids)]
 
+    # El mapa se construye desde la tabla interactions, no desde el registro manual del perfil.
+    if "role" in gps_df.columns:
+        gps_df = gps_df[gps_df["role"].astype(str).str.lower().eq("user")]
 
     required_cols = {"gps_lat", "gps_lon"}
     if not required_cols.issubset(set(gps_df.columns)):
@@ -2574,11 +2765,106 @@ def render_teacher_gps_heatmap(logs: pd.DataFrame, filtered_students: pd.DataFra
         st.dataframe(gps_df[cols].sort_values("created_at", ascending=False) if "created_at" in cols else gps_df[cols], use_container_width=True, height=280)
         st.download_button(
             "📍 Descargar interacciones con GPS",
-            gps_df[cols].to_csv(index=False).encode("utf-8-sig"),
+        gps_df[cols].to_csv(index=False).encode("utf-8-sig"),
             "interacciones_gps_mapa_calor.csv",
             "text/csv",
             use_container_width=True,
         )
+
+
+def get_research_results():
+    return fetchall("""
+        SELECT
+            aq.id, aq.user_id, aq.quiz_type, aq.title, aq.subject,
+            aq.course_level, aq.parallel, aq.shift, aq.cohort,
+            aq.score, aq.passed, aq.question_count, aq.status,
+            aq.created_at, aq.completed_at, aq.research_title, aq.random_seed,
+            u.username,
+            p.first_names, p.last_names, p.full_name_normalized,
+            COALESCE(aq.subject, p.subject) AS profile_subject,
+            COALESCE(aq.course_level, p.course_level) AS profile_course_level,
+            COALESCE(aq.parallel, p.parallel) AS profile_parallel,
+            COALESCE(aq.shift, p.shift) AS profile_shift,
+            COALESCE(aq.cohort, p.cohort, p.course) AS profile_cohort
+        FROM adaptive_quizzes aq
+        JOIN users u ON u.id=aq.user_id
+        LEFT JOIN profiles p ON p.user_id=aq.user_id
+        WHERE COALESCE(aq.quiz_type,'adaptive') IN ('pretest','posttest')
+        ORDER BY aq.id DESC
+    """)
+
+
+def render_teacher_research_dashboard(user):
+    st.markdown("""
+    <div class='teacher-card'>
+        <h3>🧪 Investigación pretest/posttest</h3>
+        <p class='small'>Resultados parametrizados por materia, curso, paralelo y jornada para análisis del efecto del tutor inteligente.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    df = pd.DataFrame(get_research_results())
+    if df.empty:
+        st.info("Aún no existen pretest o posttest registrados.")
+        return
+
+    df["score"] = pd.to_numeric(df.get("score"), errors="coerce")
+    df["student"] = df.apply(
+        lambda r: r.get("full_name_normalized") or f"{r.get('first_names') or ''} {r.get('last_names') or ''}".strip() or r.get("username"),
+        axis=1,
+    )
+    for col in ["profile_subject", "profile_course_level", "profile_parallel", "profile_shift", "profile_cohort", "quiz_type", "status"]:
+        if col not in df.columns:
+            df[col] = ""
+
+    def opts(col):
+        values = sorted([str(x).strip() for x in df[col].dropna().unique() if str(x).strip()])
+        return ["Todos"] + values
+
+    f1, f2, f3, f4, f5 = st.columns(5)
+    sel_subject = f1.selectbox("Materia", opts("profile_subject"), key="research_subject_filter")
+    sel_course = f2.selectbox("Curso", opts("profile_course_level"), key="research_course_filter")
+    sel_parallel = f3.selectbox("Paralelo", opts("profile_parallel"), key="research_parallel_filter")
+    sel_shift = f4.selectbox("Jornada", opts("profile_shift"), key="research_shift_filter")
+    sel_type = f5.selectbox("Instrumento", ["Todos", "pretest", "posttest"], key="research_type_filter")
+
+    filtered = df.copy()
+    if sel_subject != "Todos": filtered = filtered[filtered["profile_subject"].astype(str) == sel_subject]
+    if sel_course != "Todos": filtered = filtered[filtered["profile_course_level"].astype(str) == sel_course]
+    if sel_parallel != "Todos": filtered = filtered[filtered["profile_parallel"].astype(str) == sel_parallel]
+    if sel_shift != "Todos": filtered = filtered[filtered["profile_shift"].astype(str) == sel_shift]
+    if sel_type != "Todos": filtered = filtered[filtered["quiz_type"].astype(str) == sel_type]
+
+    completed = filtered[filtered["status"].astype(str).eq("completed")].copy()
+    pre_avg = completed.loc[completed["quiz_type"].eq("pretest"), "score"].mean()
+    post_avg = completed.loc[completed["quiz_type"].eq("posttest"), "score"].mean()
+    latest = completed.sort_values(["user_id", "quiz_type", "id"]).drop_duplicates(["user_id", "quiz_type"], keep="last")
+    pivot = latest.pivot_table(index="user_id", columns="quiz_type", values="score", aggfunc="last")
+    gain = (pivot["posttest"] - pivot["pretest"]).mean() if {"pretest", "posttest"}.issubset(set(pivot.columns)) else None
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.markdown(f"<div class='metric'><b>{filtered['user_id'].nunique()}</b><br><span>Estudiantes</span></div>", unsafe_allow_html=True)
+    m2.markdown(f"<div class='metric'><b>{0 if pd.isna(pre_avg) else pre_avg:.1f}%</b><br><span>Promedio pretest</span></div>", unsafe_allow_html=True)
+    m3.markdown(f"<div class='metric'><b>{0 if pd.isna(post_avg) else post_avg:.1f}%</b><br><span>Promedio posttest</span></div>", unsafe_allow_html=True)
+    m4.markdown(f"<div class='metric'><b>{'N/D' if gain is None or pd.isna(gain) else f'{gain:.1f} pts'}</b><br><span>Ganancia media</span></div>", unsafe_allow_html=True)
+
+    if not completed.empty:
+        fig = px.box(completed, x="quiz_type", y="score", color="profile_cohort", points="all", title="Distribución de resultados pre/post")
+        fig.update_layout(height=430, margin={"r":10,"t":60,"l":10,"b":80})
+        st.plotly_chart(fig, use_container_width=True)
+
+    view_cols = [c for c in [
+        "id", "student", "username", "quiz_type", "score", "passed", "status",
+        "profile_subject", "profile_cohort", "profile_course_level", "profile_parallel", "profile_shift",
+        "question_count", "created_at", "completed_at", "random_seed"
+    ] if c in filtered.columns]
+    st.dataframe(filtered[view_cols], use_container_width=True, height=420)
+    st.download_button(
+        "Descargar CSV investigación",
+        filtered[view_cols].to_csv(index=False).encode("utf-8-sig"),
+        "investigacion_pretest_posttest_bunsekichat.csv",
+        "text/csv",
+        use_container_width=True,
+    )
 
 def admin_page(user):
     teacher_page = render_teacher_sidebar()
@@ -2611,6 +2897,14 @@ def admin_page(user):
             set_timeout(int(timeout)); st.success("Configuración guardada.")
         return
 
+    if teacher_page == "📚 Planes analíticos":
+        render_teacher_plan_manager(user)
+        return
+
+    if teacher_page == "🧪 Investigación pre/post":
+        render_teacher_research_dashboard(user)
+        return
+
     total_students = len(students)
     user_logs_all = logs[logs["role"].astype(str).str.lower().eq("user")].copy() if not logs.empty and "role" in logs.columns else pd.DataFrame()
     total_questions = len(user_logs_all)
@@ -2631,7 +2925,7 @@ def admin_page(user):
     k4.markdown(f"<div class='metric'><b>{avg_score:.0f}%</b><br><span>Promedio pruebas</span></div>", unsafe_allow_html=True)
 
     st.markdown("<div class='teacher-card'><h3>Filtros académicos</h3></div>", unsafe_allow_html=True)
-    f1,f2,f3 = st.columns(3)
+    f1,f2,f3,f4,f5,f6 = st.columns(6)
 
     def opts(df, col):
         if df.empty or col not in df.columns:
@@ -2639,13 +2933,19 @@ def admin_page(user):
         vals = sorted([str(x).strip() for x in df[col].dropna().unique() if str(x).strip()])
         return ["Todos"] + vals
 
-    sel_course = f1.selectbox("Curso", opts(students, "course"))
-    sel_teacher = f2.selectbox("Docente", opts(students, "teacher"))
-    sel_level = f3.selectbox("Nivel", opts(students, "level"))
+    sel_subject = f1.selectbox("Materia", opts(students, "subject"))
+    sel_course = f2.selectbox("Curso", opts(students, "course"))
+    sel_parallel = f3.selectbox("Paralelo", opts(students, "parallel"))
+    sel_shift = f4.selectbox("Jornada", opts(students, "shift"))
+    sel_teacher = f5.selectbox("Docente", opts(students, "teacher"))
+    sel_level = f6.selectbox("Nivel", opts(students, "level"))
 
     filtered_students = students.copy()
     if not filtered_students.empty:
+        if sel_subject != "Todos": filtered_students = filtered_students[filtered_students["subject"].astype(str) == sel_subject]
         if sel_course != "Todos": filtered_students = filtered_students[filtered_students["course"].astype(str) == sel_course]
+        if sel_parallel != "Todos": filtered_students = filtered_students[filtered_students["parallel"].astype(str) == sel_parallel]
+        if sel_shift != "Todos": filtered_students = filtered_students[filtered_students["shift"].astype(str) == sel_shift]
         if sel_teacher != "Todos": filtered_students = filtered_students[filtered_students["teacher"].astype(str) == sel_teacher]
         if sel_level != "Todos": filtered_students = filtered_students[filtered_students["level"].astype(str) == sel_level]
 
@@ -2660,10 +2960,6 @@ def admin_page(user):
         filtered_quizzes = filtered_quizzes[filtered_quizzes["user_id"].isin(allowed_ids)]
 
     st.markdown(f"<div class='teacher-card'><b>Vista seleccionada en menú:</b> {teacher_page}</div>", unsafe_allow_html=True)
-
-    if teacher_page == "🔬 Investigación":
-        render_research_dashboard()
-        return
 
     if teacher_page == "📊 Dashboard docente PRO":
         st.markdown("<div class='teacher-card'><h3>📊 Dashboard docente PRO</h3><p class='small'>Resumen visual del desempeño, participación, cursos y resultados de pruebas.</p></div>", unsafe_allow_html=True)
@@ -2704,7 +3000,7 @@ def admin_page(user):
             return
 
         filtered_students = filtered_students.copy()
-        filtered_students["display"] = filtered_students.apply(lambda r: f"{r.get('username','')} · {r.get('first_names') or ''} {r.get('last_names') or ''} · {r.get('course') or ''}", axis=1)
+        filtered_students["display"] = filtered_students.apply(lambda r: f"{r.get('username','')} · {r.get('first_names') or ''} {r.get('last_names') or ''} · {r.get('subject') or ''} · {r.get('course') or ''}", axis=1)
         selected_label = st.selectbox("Selecciona estudiante para exportar", filtered_students["display"].tolist(), key="export_student_select")
         selected_id = int(filtered_students.loc[filtered_students["display"] == selected_label, "id"].iloc[0])
         profile, report_df = build_student_summary(selected_id)
@@ -2712,6 +3008,7 @@ def admin_page(user):
         st.markdown(
             f"<div class='teacher-card'><h3>{profile.get('first_names') or ''} {profile.get('last_names') or profile.get('username')}</h3>"
             f"<span class='teacher-chip'>Usuario: {profile.get('username') or ''}</span>"
+            f"<span class='teacher-chip'>Materia: {profile.get('subject') or 'Sin materia'}</span>"
             f"<span class='teacher-chip'>Curso: {profile.get('course') or 'Sin curso'}</span>"
             f"<span class='teacher-chip'>Docente: {profile.get('teacher') or 'Sin docente'}</span>"
             f"<span class='teacher-chip'>Nivel: {profile.get('level') or 'Sin nivel'}</span>"
@@ -2743,13 +3040,14 @@ def admin_page(user):
             return
 
         filtered_students = filtered_students.copy()
-        filtered_students["display"] = filtered_students.apply(lambda r: f"{r.get('username','')} · {r.get('first_names') or ''} {r.get('last_names') or ''} · {r.get('course') or ''}", axis=1)
+        filtered_students["display"] = filtered_students.apply(lambda r: f"{r.get('username','')} · {r.get('first_names') or ''} {r.get('last_names') or ''} · {r.get('subject') or ''} · {r.get('course') or ''}", axis=1)
         selected_label = st.selectbox("Selecciona estudiante para seguimiento", filtered_students["display"].tolist(), key="follow_student_select")
         selected_id = int(filtered_students.loc[filtered_students["display"] == selected_label, "id"].iloc[0])
         profile, report_df = build_student_summary(selected_id)
         st.markdown(
             f"<div class='teacher-card'><h3>{profile.get('first_names') or ''} {profile.get('last_names') or profile.get('username')}</h3>"
             f"<span class='teacher-chip'>Usuario: {profile.get('username') or ''}</span>"
+            f"<span class='teacher-chip'>Materia: {profile.get('subject') or 'Sin materia'}</span>"
             f"<span class='teacher-chip'>Curso: {profile.get('course') or 'Sin curso'}</span>"
             f"<span class='teacher-chip'>Nivel: {profile.get('level') or 'Sin nivel'}</span></div>",
             unsafe_allow_html=True,
