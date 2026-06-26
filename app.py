@@ -102,6 +102,29 @@ RESEARCH_TEST_TYPES = {
     "pretest": "Pretest",
     "posttest": "Posttest",
 }
+RESEARCH_DIMENSION_BLUEPRINT = [
+    {"dimension": "Comprensión conceptual", "weight": 0.20, "indicator": "Interpreta la derivada como tasa de cambio", "competence": "Comprende conceptos fundamentales"},
+    {"dimension": "Procedimientos", "weight": 0.25, "indicator": "Aplica reglas y criterios de derivación en contextos", "competence": "Ejecuta procedimientos matemáticos"},
+    {"dimension": "Aplicaciones", "weight": 0.35, "indicator": "Modela situaciones con derivadas", "competence": "Transfiere el cálculo a problemas reales"},
+    {"dimension": "Resolución de problemas", "weight": 0.20, "indicator": "Resuelve problemas multietapa e interpreta resultados", "competence": "Argumenta y valida soluciones"},
+]
+RESEARCH_SURVEY_ITEMS = [
+    ("Usabilidad del sistema", "El sistema fue fácil de navegar durante la actividad."),
+    ("Usabilidad del sistema", "Encontré rápidamente las opciones de pretest, clase y posttest."),
+    ("Facilidad de uso", "Pude completar las actividades sin ayuda externa."),
+    ("Facilidad de uso", "Las instrucciones de la plataforma fueron claras."),
+    ("Claridad de las explicaciones", "Las explicaciones de Bunseki Chat fueron comprensibles."),
+    ("Claridad de las explicaciones", "Los ejemplos me ayudaron a entender aplicaciones de la derivada."),
+    ("Calidad de la retroalimentación", "La retroalimentación me ayudó a identificar mis errores."),
+    ("Calidad de la retroalimentación", "Las correcciones fueron útiles para mejorar."),
+    ("Motivación para aprender", "El uso del tutor aumentó mi interés por el tema."),
+    ("Motivación para aprender", "Me sentí motivado a continuar practicando."),
+    ("Autoeficacia percibida", "Después de usar el tutor me siento más capaz de resolver ejercicios."),
+    ("Autoeficacia percibida", "Puedo explicar mejor los pasos para resolver problemas aplicados."),
+    ("Utilidad del tutor", "Bunseki Chat fue útil para estudiar aplicaciones de la derivada."),
+    ("Utilidad del tutor", "Recomendaría usar Bunseki Chat como apoyo en Cálculo Diferencial."),
+    ("Satisfacción general", "Estoy satisfecho con la experiencia de aprendizaje."),
+]
 
 # Banco local de respaldo para que la investigación funcione aun si la API IA no responde.
 DIFFERENTIAL_CALCULUS_QUESTION_BANK = [
@@ -1044,6 +1067,12 @@ def init_db():
                     research_title TEXT,
                     question_count INTEGER,
                     random_seed TEXT,
+                    version_code TEXT,
+                    dimension_scores_json TEXT,
+                    diagnosis_json TEXT,
+                    cognitive_profile TEXT,
+                    learning_plan_json TEXT,
+                    total_time_seconds DOUBLE PRECISION,
                     score DOUBLE PRECISION,
                     passed BOOLEAN DEFAULT FALSE,
                     attempt_no INTEGER DEFAULT 1,
@@ -1061,10 +1090,44 @@ def init_db():
                     correct_answer TEXT,
                     position INTEGER,
                     topic TEXT,
+                    subtopic TEXT,
+                    dimension TEXT,
+                    indicator TEXT,
+                    competence TEXT,
+                    difficulty_level TEXT,
                     user_answer TEXT,
+                    response_time_seconds DOUBLE PRECISION,
+                    attempts INTEGER DEFAULT 1,
                     explanation TEXT,
                     bloom_level TEXT,
+                    conceptual_error TEXT,
+                    estimated_confidence DOUBLE PRECISION,
                     is_correct BOOLEAN
+                );
+                CREATE TABLE IF NOT EXISTS research_exercise_attempts(
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    quiz_id INTEGER REFERENCES adaptive_quizzes(id) ON DELETE SET NULL,
+                    topic TEXT,
+                    subtopic TEXT,
+                    exercise_text TEXT NOT NULL,
+                    options_json TEXT,
+                    correct_answer TEXT,
+                    user_answer TEXT,
+                    difficulty_level TEXT,
+                    is_correct BOOLEAN,
+                    feedback TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS research_survey_responses(
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    quiz_id INTEGER REFERENCES adaptive_quizzes(id) ON DELETE SET NULL,
+                    item_no INTEGER,
+                    dimension TEXT,
+                    item_text TEXT,
+                    score INTEGER,
+                    created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS settings(
                     key TEXT PRIMARY KEY,
@@ -1098,10 +1161,27 @@ def init_db():
                 ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS research_title TEXT;
                 ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS question_count INTEGER;
                 ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS random_seed TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS version_code TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS dimension_scores_json TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS diagnosis_json TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS cognitive_profile TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS learning_plan_json TEXT;
+                ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS total_time_seconds DOUBLE PRECISION;
                 ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS position INTEGER;
                 ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS topic TEXT;
+                ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS subtopic TEXT;
+                ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS dimension TEXT;
+                ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS indicator TEXT;
+                ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS competence TEXT;
+                ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS difficulty_level TEXT;
+                ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS response_time_seconds DOUBLE PRECISION;
+                ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 1;
+                ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS conceptual_error TEXT;
+                ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS estimated_confidence DOUBLE PRECISION;
                 CREATE INDEX IF NOT EXISTS idx_profiles_cohort ON profiles(cohort);
                 CREATE INDEX IF NOT EXISTS idx_adaptive_quizzes_research ON adaptive_quizzes(quiz_type, subject, course_level, parallel, shift);
+                CREATE INDEX IF NOT EXISTS idx_research_exercise_attempts_user_id ON research_exercise_attempts(user_id);
+                CREATE INDEX IF NOT EXISTS idx_research_survey_user_id ON research_survey_responses(user_id);
                 """)
                 cur.execute("INSERT INTO settings(key,value) VALUES('session_timeout_minutes', %s) ON CONFLICT (key) DO NOTHING", (str(SESSION_TIMEOUT_MINUTES),))
                 cur.execute("SELECT id FROM users WHERE username=%s", (ADMIN_USER,))
@@ -1935,6 +2015,145 @@ def quiz_type_label(quiz_type):
     return RESEARCH_TEST_TYPES.get(str(quiz_type or "adaptive").lower(), "Evaluación adaptativa")
 
 
+def research_dimension_counts(n_questions):
+    n = int(n_questions)
+    counts = {}
+    assigned = 0
+    for item in RESEARCH_DIMENSION_BLUEPRINT[:-1]:
+        count = int(round(n * float(item["weight"])))
+        counts[item["dimension"]] = count
+        assigned += count
+    last_dim = RESEARCH_DIMENSION_BLUEPRINT[-1]["dimension"]
+    counts[last_dim] = max(0, n - assigned)
+    return counts
+
+
+def research_blueprint_sequence(n_questions):
+    counts = research_dimension_counts(n_questions)
+    sequence = []
+    for item in RESEARCH_DIMENSION_BLUEPRINT:
+        for _ in range(counts.get(item["dimension"], 0)):
+            sequence.append(dict(item))
+    while len(sequence) < int(n_questions):
+        sequence.append(dict(RESEARCH_DIMENSION_BLUEPRINT[-1]))
+    return sequence[:int(n_questions)]
+
+
+def difficulty_for_position(position, total):
+    ratio = position / max(1, total)
+    if ratio <= 0.35:
+        return "Fácil"
+    if ratio <= 0.75:
+        return "Medio"
+    return "Difícil"
+
+
+def assessment_version_from_seed(seed):
+    versions = ["A", "B", "C", "D"]
+    try:
+        return versions[int(str(seed)[:2], 16) % len(versions)]
+    except Exception:
+        return random.choice(versions)
+
+
+def enrich_research_questions(questions, n_questions):
+    blueprint = research_blueprint_sequence(n_questions)
+    enriched = []
+    for idx, q in enumerate(questions[:int(n_questions)], start=1):
+        item = dict(q)
+        meta = blueprint[idx - 1] if idx - 1 < len(blueprint) else dict(RESEARCH_DIMENSION_BLUEPRINT[-1])
+        item.setdefault("dimension", meta.get("dimension", "Aplicaciones"))
+        item.setdefault("indicator", meta.get("indicator", RESEARCH_FOCUS_TOPIC))
+        item.setdefault("competence", meta.get("competence", "Resuelve problemas aplicados"))
+        item.setdefault("subtopic", item.get("topic") or RESEARCH_FOCUS_TOPIC)
+        item.setdefault("difficulty_level", difficulty_for_position(idx, n_questions))
+        enriched.append(item)
+    return enriched
+
+
+def conceptual_error_for_question(question, is_correct):
+    if is_correct:
+        return ""
+    topic = strip_accents(question.get("topic") or question.get("subtopic") or "").lower()
+    if "optimiz" in topic:
+        return "Dificultad para formular función objetivo o analizar extremos"
+    if "razon" in topic or "tasa" in topic or "velocidad" in topic:
+        return "Confusión entre magnitud y tasa de cambio"
+    if "concav" in topic:
+        return "Confusión en interpretación de la segunda derivada"
+    if "tangente" in topic or "pendiente" in topic:
+        return "Dificultad para interpretar la derivada como pendiente"
+    if "marginal" in topic:
+        return "Confusión en interpretación marginal"
+    return "Error conceptual o procedimental en aplicaciones de la derivada"
+
+
+def cognitive_profile_from_score(score):
+    if score >= 80:
+        return "avanzado"
+    if score >= 55:
+        return "intermedio"
+    return "novato"
+
+
+def bloom_rank(level):
+    order = {"Recordar": 1, "Comprender": 2, "Aplicar": 3, "Analizar": 4, "Evaluar": 5, "Crear": 6}
+    return order.get(str(level or "").strip(), 0)
+
+
+def build_quiz_diagnosis(score, questions):
+    by_dimension = {}
+    by_topic = {}
+    errors = {}
+    correct_blooms = []
+    for q in questions:
+        dim = q.get("dimension") or "Sin dimensión"
+        topic = q.get("topic") or q.get("subtopic") or RESEARCH_FOCUS_TOPIC
+        ok = bool(q.get("is_correct"))
+        by_dimension.setdefault(dim, {"correct": 0, "total": 0})
+        by_topic.setdefault(topic, {"correct": 0, "total": 0})
+        by_dimension[dim]["total"] += 1
+        by_topic[topic]["total"] += 1
+        if ok:
+            by_dimension[dim]["correct"] += 1
+            by_topic[topic]["correct"] += 1
+            correct_blooms.append(q.get("bloom_level"))
+        else:
+            err = q.get("conceptual_error") or conceptual_error_for_question(q, False)
+            errors[err] = errors.get(err, 0) + 1
+
+    dimension_scores = {
+        dim: round(v["correct"] / max(1, v["total"]) * 100, 2)
+        for dim, v in by_dimension.items()
+    }
+    topic_scores = {
+        topic: round(v["correct"] / max(1, v["total"]) * 100, 2)
+        for topic, v in by_topic.items()
+    }
+    dominated = [topic for topic, value in topic_scores.items() if value >= 70]
+    deficient = [topic for topic, value in topic_scores.items() if value < 70]
+    bloom_level = "Inicial"
+    if correct_blooms:
+        bloom_level = sorted(correct_blooms, key=bloom_rank)[-1]
+    profile = cognitive_profile_from_score(score)
+    learning_plan = {
+        "focus_topic": RESEARCH_FOCUS_TOPIC,
+        "profile": profile,
+        "recommended_microclasses": deficient or [RESEARCH_FOCUS_TOPIC],
+        "recommended_exercises": {"Fácil": 5, "Medio": 5, "Difícil": 3},
+    }
+    return {
+        "dimension_scores": dimension_scores,
+        "topic_scores": topic_scores,
+        "frequent_errors": sorted(errors, key=errors.get, reverse=True)[:5],
+        "dominated_concepts": dominated,
+        "deficient_concepts": deficient,
+        "bloom_level": bloom_level,
+        "profile": profile,
+        "learning_plan": learning_plan,
+    }
+
+
 def local_research_question_pool(subject):
     key = strip_accents(subject).lower()
     if "calculo diferencial" in key or "calculo" in key:
@@ -2145,6 +2364,9 @@ def create_adaptive_quiz(uid, plan_id=None, difficulty="Intermedio", n_questions
         questions.extend(fallback_questions(n_questions, assessment_context=assessment_context))
     random_seed = make_assessment_seed(uid, quiz_type, academic_context)
     questions = randomize_questions_for_student(questions, uid, quiz_type, n_questions, random_seed)
+    if is_research_quiz(quiz_type):
+        questions = enrich_research_questions(questions, n_questions)
+    version_code = assessment_version_from_seed(random_seed) if is_research_quiz(quiz_type) else ""
     title = "Evaluación adaptativa IA"
     if is_research_quiz(quiz_type):
         title = f"{quiz_type_label(quiz_type)} - {academic_context.get('subject') or 'Materia'}"
@@ -2153,23 +2375,31 @@ def create_adaptive_quiz(uid, plan_id=None, difficulty="Intermedio", n_questions
         INSERT INTO adaptive_quizzes(
             user_id, plan_id, title, quiz_type, source_topic, difficulty,
             subject, course_level, parallel, shift, cohort, research_title,
-            question_count, random_seed, attempt_no, parent_quiz_id, status, created_at
+            question_count, random_seed, version_code, attempt_no, parent_quiz_id, status, created_at
         )
-        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
     """, (
         uid, plan_id, title, quiz_type, source_topic, difficulty,
         academic_context.get("subject"), academic_context.get("course_level"),
         academic_context.get("parallel"), academic_context.get("shift"),
         academic_context.get("cohort") or academic_context.get("course"),
         RESEARCH_TITLE if is_research_quiz(quiz_type) else "",
-        int(n_questions), random_seed, prior_attempts, parent_quiz_id, "generated", now()
+        int(n_questions), random_seed, version_code, prior_attempts, parent_quiz_id, "generated", now()
     ), returning=True)
     quiz_id = row["id"]
     for position, q in enumerate(questions, start=1):
         execute("""
-            INSERT INTO adaptive_questions(quiz_id, question, options_json, correct_answer, position, topic, explanation, bloom_level)
-            VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (quiz_id, q["question"], json.dumps(q["options"], ensure_ascii=False), q["correct_answer"], position, q.get("topic",""), q.get("explanation",""), q.get("bloom_level","Aplicar")))
+            INSERT INTO adaptive_questions(
+                quiz_id, question, options_json, correct_answer, position, topic, subtopic,
+                dimension, indicator, competence, difficulty_level, explanation, bloom_level
+            )
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (
+            quiz_id, q["question"], json.dumps(q["options"], ensure_ascii=False),
+            q["correct_answer"], position, q.get("topic",""), q.get("subtopic",""),
+            q.get("dimension",""), q.get("indicator",""), q.get("competence",""),
+            q.get("difficulty_level",""), q.get("explanation",""), q.get("bloom_level","Aplicar")
+        ))
     return quiz_id
 
 
@@ -2203,11 +2433,13 @@ def delete_adaptive_quiz(quiz_id):
         execute("DELETE FROM adaptive_quizzes WHERE id=%s", (quiz_id,))
 
 
-def grade_adaptive_quiz(quiz_id, answers: dict):
+def grade_adaptive_quiz(quiz_id, answers: dict, elapsed_seconds=None):
     quiz, questions = load_adaptive_quiz(quiz_id)
     total = max(1, len(questions))
     correct = 0
     weak_topics = []
+    per_question_time = round(float(elapsed_seconds or 0) / total, 2) if elapsed_seconds else None
+    graded_questions = []
     for q in questions:
         ans = answers.get(str(q["id"]), "")
         ok = str(ans).strip() == str(q.get("correct_answer","")).strip()
@@ -2215,15 +2447,39 @@ def grade_adaptive_quiz(quiz_id, answers: dict):
             correct += 1
         else:
             weak_topics.append(q.get("question","")[:120])
-        execute("UPDATE adaptive_questions SET user_answer=%s, is_correct=%s WHERE id=%s", (ans, ok, q["id"]))
+        conceptual_error = conceptual_error_for_question(q, ok)
+        estimated_confidence = 0.85 if ok else 0.35
+        execute("""
+            UPDATE adaptive_questions
+            SET user_answer=%s, is_correct=%s, attempts=%s, response_time_seconds=%s,
+                conceptual_error=%s, estimated_confidence=%s
+            WHERE id=%s
+        """, (ans, ok, 1, per_question_time, conceptual_error, estimated_confidence, q["id"]))
+        q["user_answer"] = ans
+        q["is_correct"] = ok
+        q["conceptual_error"] = conceptual_error
+        q["estimated_confidence"] = estimated_confidence
+        q["response_time_seconds"] = per_question_time
+        graded_questions.append(q)
     score = round(correct / total * 100, 2)
     passed = score >= 70
-    recommendation = "Aprobado. Puedes avanzar al siguiente reto." if passed else "Refuerzo automático sugerido: revisa las preguntas falladas y genera un nuevo intento."
+    diagnosis = build_quiz_diagnosis(score, graded_questions)
+    recommendation = "Aprobado. Puedes avanzar al siguiente reto." if passed else "Refuerzo automático sugerido: revisa las preguntas falladas y estudia las microclases sugeridas."
     execute("""
         UPDATE adaptive_quizzes
-        SET score=%s, passed=%s, status=%s, recommendation=%s, completed_at=%s
+        SET score=%s, passed=%s, status=%s, recommendation=%s, completed_at=%s,
+            dimension_scores_json=%s, diagnosis_json=%s, cognitive_profile=%s,
+            learning_plan_json=%s, total_time_seconds=%s
         WHERE id=%s
-    """, (score, passed, "completed", recommendation, now(), quiz_id))
+    """, (
+        score, passed, "completed", recommendation, now(),
+        json.dumps(diagnosis.get("dimension_scores", {}), ensure_ascii=False),
+        json.dumps(diagnosis, ensure_ascii=False),
+        diagnosis.get("profile", ""),
+        json.dumps(diagnosis.get("learning_plan", {}), ensure_ascii=False),
+        float(elapsed_seconds or 0) if elapsed_seconds else None,
+        quiz_id,
+    ))
     return score, passed, weak_topics, recommendation
 
 
@@ -2266,6 +2522,25 @@ Ejemplo: si `A=πr²`, entonces `dA/dt = 2πr dr/dt`.
 Lee el enunciado, identifica variables, escribe la función, deriva e interpreta la respuesta con unidades.
 {weak_block}
 """
+
+
+def render_quiz_diagnosis(quiz):
+    diagnosis = _safe_json_loads(quiz.get("diagnosis_json"), {}) if quiz else {}
+    if not diagnosis:
+        return
+    st.markdown("<div class='eval-card'><h3>Diagnóstico automático</h3></div>", unsafe_allow_html=True)
+    d1, d2, d3 = st.columns(3)
+    d1.markdown(f"<div class='metric'><b>{diagnosis.get('profile','N/D').title()}</b><br><span>Perfil cognitivo</span></div>", unsafe_allow_html=True)
+    d2.markdown(f"<div class='metric'><b>{diagnosis.get('bloom_level','N/D')}</b><br><span>Nivel Bloom alcanzado</span></div>", unsafe_allow_html=True)
+    d3.markdown(f"<div class='metric'><b>{len(diagnosis.get('deficient_concepts', []))}</b><br><span>Conceptos a reforzar</span></div>", unsafe_allow_html=True)
+    dimension_scores = diagnosis.get("dimension_scores") or {}
+    if dimension_scores:
+        dim_df = pd.DataFrame([{"dimensión": k, "porcentaje": v} for k, v in dimension_scores.items()])
+        st.plotly_chart(px.bar(dim_df, x="dimensión", y="porcentaje", range_y=[0, 100], title="Porcentaje por dimensión"), use_container_width=True)
+    if diagnosis.get("frequent_errors"):
+        st.warning("Errores frecuentes: " + "; ".join(diagnosis.get("frequent_errors", [])))
+    if diagnosis.get("deficient_concepts"):
+        st.info("Plan recomendado: estudiar " + ", ".join(diagnosis.get("deficient_concepts", [])))
 
 
 def generate_derivative_applications_lesson(uid, academic_context, pretest_quiz_id):
@@ -2332,6 +2607,93 @@ def render_research_lesson_panel(user, academic_context, pretest_quiz):
         st.rerun()
     if st.session_state.get(lesson_key):
         st.markdown(st.session_state[lesson_key])
+
+
+def guided_exercise_bank():
+    return [
+        ("Fácil", "Si s(t)=4t+3, ¿qué representa s'(t)=4?", ["Velocidad constante", "Aceleración variable", "Área total", "Tiempo máximo"], "Velocidad constante", "La derivada de posición representa velocidad."),
+        ("Fácil", "Si C'(50)=12, ¿qué interpretación es correcta?", ["Producir una unidad adicional cerca de 50 cuesta aproximadamente 12", "El costo total es 12", "La utilidad es 50", "La producción máxima es 12"], "Producir una unidad adicional cerca de 50 cuesta aproximadamente 12", "La derivada del costo es costo marginal."),
+        ("Fácil", "Si f'(x)>0 en un intervalo, la función:", ["Crece", "Decrece", "No existe", "Es cóncava abajo siempre"], "Crece", "Derivada positiva implica crecimiento."),
+        ("Fácil", "La pendiente de la tangente a f en x=a es:", ["f'(a)", "f(a)", "a", "f''(a)+1"], "f'(a)", "La derivada en el punto es la pendiente."),
+        ("Fácil", "Si f''(x)>0, la gráfica es:", ["Cóncava hacia arriba", "Cóncava hacia abajo", "Horizontal", "Discontinua"], "Cóncava hacia arriba", "La segunda derivada positiva indica concavidad hacia arriba."),
+        ("Medio", "Para maximizar A(x), el primer candidato interior se obtiene resolviendo:", ["A'(x)=0", "A(x)=0", "A''(x)=0 siempre", "x=0 siempre"], "A'(x)=0", "Los extremos interiores se buscan con puntos críticos."),
+        ("Medio", "Si R(x)=80x-0.5x², entonces R'(x) es:", ["80-x", "80x-x²", "80-0.5x", "x-80"], "80-x", "Se deriva término a término."),
+        ("Medio", "Si A=πr² y dr/dt=2, entonces dA/dt es:", ["4πr", "2πr", "πr²", "2r"], "4πr", "dA/dt=2πr dr/dt=4πr."),
+        ("Medio", "Si f'(a)=0 y f''(a)<0, entonces hay:", ["Máximo local", "Mínimo local", "Punto de inflexión siempre", "No hay conclusión"], "Máximo local", "Punto crítico con segunda derivada negativa indica máximo local."),
+        ("Medio", "La recta tangente en x=a usa la fórmula:", ["y-f(a)=f'(a)(x-a)", "y=f(a)+a", "y=x/a", "y=f''(a)x"], "y-f(a)=f'(a)(x-a)", "Es la forma punto-pendiente."),
+        ("Difícil", "Una caja sin tapa se fabrica con una lámina cuadrada recortando esquinas. El objetivo de derivar el volumen es:", ["Encontrar el corte que maximiza el volumen", "Encontrar solo el perímetro", "Eliminar la restricción", "Calcular velocidad"], "Encontrar el corte que maximiza el volumen", "Es un problema de optimización geométrica."),
+        ("Difícil", "Si la demanda p(x)=100-2x e ingreso R=xp(x), para maximizar ingreso se debe:", ["Formar R(x)=100x-2x² y resolver R'(x)=0", "Resolver p(x)=0 solamente", "Derivar p y detenerse", "Usar solo x=0"], "Formar R(x)=100x-2x² y resolver R'(x)=0", "Primero se modela el ingreso y luego se optimiza."),
+        ("Difícil", "En un problema de escalera que se desliza, si x e y cambian con el tiempo, el método correcto es:", ["Derivar la relación x²+y²=L² respecto de t", "Derivar solo x", "Hacer x=y siempre", "Ignorar dx/dt"], "Derivar la relación x²+y²=L² respecto de t", "Razones relacionadas usan derivación implícita respecto al tiempo."),
+    ]
+
+
+def render_guided_exercises_panel(user, academic_context, pretest_quiz):
+    if not pretest_quiz or pretest_quiz.get("status") != "completed":
+        return
+    exercises = guided_exercise_bank()
+    st.markdown(
+        f"<div class='eval-card'><h3>Ejercicios guiados adaptativos</h3>"
+        f"<span class='eval-chip'>5 fáciles</span><span class='eval-chip'>5 medios</span><span class='eval-chip'>3 difíciles</span>"
+        f"<p class='small'>Responde para recibir retroalimentación inmediata antes del posttest.</p></div>",
+        unsafe_allow_html=True,
+    )
+    form_key = f"guided_exercises_{user['id']}_{pretest_quiz['id']}"
+    with st.form(form_key):
+        answers = {}
+        for idx, (difficulty, text, options, correct, feedback) in enumerate(exercises, start=1):
+            st.markdown(f"<div class='eval-question'><b>{idx}. {text}</b><br><span class='eval-chip'>{difficulty}</span></div>", unsafe_allow_html=True)
+            answers[str(idx)] = st.radio("Selecciona una respuesta", options, key=f"{form_key}_{idx}", label_visibility="collapsed")
+        submitted = st.form_submit_button("Revisar ejercicios guiados", use_container_width=True)
+    if submitted:
+        correct_count = 0
+        for idx, (difficulty, text, options, correct, feedback) in enumerate(exercises, start=1):
+            user_answer = answers.get(str(idx), "")
+            ok = user_answer == correct
+            correct_count += 1 if ok else 0
+            execute("""
+                INSERT INTO research_exercise_attempts(
+                    user_id, quiz_id, topic, subtopic, exercise_text, options_json,
+                    correct_answer, user_answer, difficulty_level, is_correct, feedback, created_at
+                )
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                user["id"], pretest_quiz["id"], "Cálculo diferencial", RESEARCH_FOCUS_TOPIC,
+                text, json.dumps(options, ensure_ascii=False), correct, user_answer,
+                difficulty, ok, feedback, now()
+            ))
+        st.success(f"Ejercicios revisados: {correct_count}/{len(exercises)} correctos.")
+        if correct_count < len(exercises) * 0.7:
+            st.warning("Recomendación adaptativa: vuelve a revisar la clase IA y practica ejercicios similares de dificultad fácil/media.")
+        else:
+            st.info("Buen avance: puedes intentar el posttest con ejercicios de mayor contexto.")
+
+
+def survey_already_submitted(uid, quiz_id):
+    row = fetchone("SELECT COUNT(*) AS n FROM research_survey_responses WHERE user_id=%s AND quiz_id=%s", (uid, quiz_id))
+    return bool(row and int(row.get("n") or 0) >= len(RESEARCH_SURVEY_ITEMS))
+
+
+def render_final_survey(user, posttest_quiz):
+    if not posttest_quiz or posttest_quiz.get("status") != "completed":
+        return
+    st.markdown("<div class='eval-card'><h3>Encuesta final de percepción</h3><p class='small'>Escala Likert: 1 = totalmente en desacuerdo, 5 = totalmente de acuerdo.</p></div>", unsafe_allow_html=True)
+    if survey_already_submitted(user["id"], posttest_quiz["id"]):
+        st.success("Encuesta final registrada. Gracias.")
+        return
+    with st.form(f"survey_{user['id']}_{posttest_quiz['id']}"):
+        scores = {}
+        for idx, (dimension, item) in enumerate(RESEARCH_SURVEY_ITEMS, start=1):
+            scores[idx] = st.slider(f"{idx}. {item}", 1, 5, 3, key=f"survey_item_{posttest_quiz['id']}_{idx}")
+            st.caption(dimension)
+        submitted = st.form_submit_button("Enviar encuesta final", use_container_width=True)
+    if submitted:
+        for idx, (dimension, item) in enumerate(RESEARCH_SURVEY_ITEMS, start=1):
+            execute("""
+                INSERT INTO research_survey_responses(user_id, quiz_id, item_no, dimension, item_text, score, created_at)
+                VALUES(%s,%s,%s,%s,%s,%s,%s)
+            """, (user["id"], posttest_quiz["id"], idx, dimension, item, int(scores[idx]), now()))
+        st.success("Encuesta final registrada correctamente.")
+        st.rerun()
 
 
 def render_teacher_plan_manager(user):
@@ -2476,6 +2838,7 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
             st.warning("El posttest se habilita cuando el estudiante haya completado el pretest.")
             return
         render_research_lesson_panel(user, academic_context, completed_pretest)
+        render_guided_exercises_panel(user, academic_context, completed_pretest)
 
     col1, col2 = st.columns(2)
     can_generate = not (research_mode and last_quiz)
@@ -2540,23 +2903,37 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
         score = float(quiz.get("score") or 0)
         cls = "eval-result-pass" if quiz.get("passed") else "eval-result-fail"
         st.markdown(f"<div class='{cls}'>Resultado: {score:.0f}% · {'Aprobado' if quiz.get('passed') else 'No aprobado'} · {quiz.get('recommendation') or ''}</div>", unsafe_allow_html=True)
+        render_quiz_diagnosis(quiz)
         for q in questions:
             icon = "✅" if q.get("is_correct") else "❌"
             st.markdown(f"<div class='eval-question'><b>{icon} {q.get('question')}</b><br><span class='small'>Tu respuesta: {q.get('user_answer') or 'Sin respuesta'} · Correcta: {q.get('correct_answer')}</span><br><br>{q.get('explanation') or ''}</div>", unsafe_allow_html=True)
         if (quiz.get("quiz_type") or quiz_type) == "pretest":
             render_research_lesson_panel(user, academic_context, quiz)
+            render_guided_exercises_panel(user, academic_context, quiz)
+        if (quiz.get("quiz_type") or quiz_type) == "posttest":
+            render_final_survey(user, quiz)
         return
 
     with st.form(f"adaptive_quiz_form_{quiz_id}"):
+        timer_key = f"quiz_started_at_{quiz_id}"
+        if timer_key not in st.session_state:
+            st.session_state[timer_key] = time.time()
         answers = {}
         for i, q in enumerate(questions, start=1):
             opts = q.get("options") or _safe_json_loads(q.get("options_json"), [])
-            st.markdown(f"<div class='eval-question'><b>{i}. {q.get('question')}</b><br><span class='eval-chip'>{q.get('bloom_level') or 'Aplicar'}</span></div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='eval-question'><b>{i}. {q.get('question')}</b><br>"
+                f"<span class='eval-chip'>{q.get('bloom_level') or 'Aplicar'}</span>"
+                f"<span class='eval-chip'>{q.get('dimension') or 'Aplicaciones'}</span>"
+                f"<span class='eval-chip'>{q.get('difficulty_level') or 'Medio'}</span></div>",
+                unsafe_allow_html=True
+            )
             answers[str(q["id"])] = st.radio("Selecciona una respuesta", opts, key=f"adaptive_q_{quiz_id}_{q['id']}", label_visibility="collapsed")
         submitted = st.form_submit_button("Calificar evaluación", use_container_width=True)
 
     if submitted:
-        score, passed, weak_topics, recommendation = grade_adaptive_quiz(int(quiz_id), answers)
+        elapsed_seconds = round(time.time() - float(st.session_state.get(f"quiz_started_at_{quiz_id}", time.time())), 2)
+        score, passed, weak_topics, recommendation = grade_adaptive_quiz(int(quiz_id), answers, elapsed_seconds=elapsed_seconds)
         event_type = f"{quiz_type}_submitted"
         gps_actual = capture_browser_gps(user['id'], page='evaluacion_ia', topic=topic, subtopic=subtopic, event_type=event_type, show_status=False)
         log_location_event(user['id'], event_type, page='evaluacion_ia', topic=topic, subtopic=subtopic, gps=gps_actual)
@@ -3003,6 +3380,8 @@ def get_research_results():
             aq.id, aq.user_id, aq.quiz_type, aq.title, aq.subject,
             aq.course_level, aq.parallel, aq.shift, aq.cohort,
             aq.score, aq.passed, aq.question_count, aq.status,
+            aq.version_code, aq.dimension_scores_json, aq.diagnosis_json,
+            aq.cognitive_profile, aq.learning_plan_json, aq.total_time_seconds,
             aq.created_at, aq.completed_at, aq.research_title, aq.random_seed,
             u.username,
             p.first_names, p.last_names, p.full_name_normalized,
@@ -3016,6 +3395,26 @@ def get_research_results():
         LEFT JOIN profiles p ON p.user_id=aq.user_id
         WHERE COALESCE(aq.quiz_type,'adaptive') IN ('pretest','posttest')
         ORDER BY aq.id DESC
+    """)
+
+
+def get_research_exercise_attempts():
+    return fetchall("""
+        SELECT rea.*, u.username, p.first_names, p.last_names, p.cohort
+        FROM research_exercise_attempts rea
+        JOIN users u ON u.id=rea.user_id
+        LEFT JOIN profiles p ON p.user_id=rea.user_id
+        ORDER BY rea.id DESC
+    """)
+
+
+def get_research_survey_responses():
+    return fetchall("""
+        SELECT rsr.*, u.username, p.first_names, p.last_names, p.cohort
+        FROM research_survey_responses rsr
+        JOIN users u ON u.id=rsr.user_id
+        LEFT JOIN profiles p ON p.user_id=rsr.user_id
+        ORDER BY rsr.id DESC
     """)
 
 
@@ -3077,10 +3476,28 @@ def render_teacher_research_dashboard(user):
         fig.update_layout(height=430, margin={"r":10,"t":60,"l":10,"b":80})
         st.plotly_chart(fig, use_container_width=True)
 
+        dim_rows = []
+        for _, row in completed.iterrows():
+            scores = _safe_json_loads(row.get("dimension_scores_json"), {})
+            for dim, value in scores.items():
+                dim_rows.append({
+                    "student": row.get("student"),
+                    "quiz_type": row.get("quiz_type"),
+                    "dimension": dim,
+                    "score": float(value or 0),
+                })
+        if dim_rows:
+            dim_df = pd.DataFrame(dim_rows)
+            heat = dim_df.pivot_table(index="dimension", columns="quiz_type", values="score", aggfunc="mean").fillna(0)
+            st.plotly_chart(px.imshow(heat, aspect="auto", title="Heatmap de rendimiento por dimensión"), use_container_width=True)
+            radar_df = dim_df.groupby(["quiz_type", "dimension"], as_index=False)["score"].mean()
+            st.plotly_chart(px.line_polar(radar_df, r="score", theta="dimension", color="quiz_type", line_close=True, range_r=[0, 100], title="Radar de competencias pre/post"), use_container_width=True)
+
     view_cols = [c for c in [
         "id", "student", "username", "quiz_type", "score", "passed", "status",
         "profile_subject", "profile_cohort", "profile_course_level", "profile_parallel", "profile_shift",
-        "question_count", "created_at", "completed_at", "random_seed"
+        "question_count", "version_code", "cognitive_profile", "total_time_seconds",
+        "dimension_scores_json", "created_at", "completed_at", "random_seed"
     ] if c in filtered.columns]
     st.dataframe(filtered[view_cols], use_container_width=True, height=420)
     st.download_button(
@@ -3090,6 +3507,30 @@ def render_teacher_research_dashboard(user):
         "text/csv",
         use_container_width=True,
     )
+    st.download_button(
+        "Descargar JSON investigación",
+        filtered[view_cols].to_json(orient="records", force_ascii=False, indent=2).encode("utf-8"),
+        "investigacion_pretest_posttest_bunsekichat.json",
+        "application/json",
+        use_container_width=True,
+    )
+    r_script = "datos <- read.csv('investigacion_pretest_posttest_bunsekichat.csv')\nsummary(datos)\nboxplot(score ~ quiz_type, data=datos)\n"
+    py_script = "import pandas as pd\nimport seaborn as sns\nimport matplotlib.pyplot as plt\n\ndf = pd.read_csv('investigacion_pretest_posttest_bunsekichat.csv')\nprint(df.groupby('quiz_type')['score'].describe())\nsns.boxplot(data=df, x='quiz_type', y='score')\nplt.show()\n"
+    r1, r2 = st.columns(2)
+    r1.download_button("Script R", r_script.encode("utf-8"), "analisis_bunsekichat.R", "text/plain", use_container_width=True)
+    r2.download_button("Script Python", py_script.encode("utf-8"), "analisis_bunsekichat.py", "text/plain", use_container_width=True)
+
+    exercise_df = pd.DataFrame(get_research_exercise_attempts())
+    survey_df = pd.DataFrame(get_research_survey_responses())
+    e1, e2 = st.columns(2)
+    if not exercise_df.empty:
+        e1.download_button("CSV ejercicios guiados", exercise_df.to_csv(index=False).encode("utf-8-sig"), "ejercicios_guiados_bunsekichat.csv", "text/csv", use_container_width=True)
+    else:
+        e1.info("Aún no hay ejercicios guiados registrados.")
+    if not survey_df.empty:
+        e2.download_button("CSV encuesta final", survey_df.to_csv(index=False).encode("utf-8-sig"), "encuesta_final_bunsekichat.csv", "text/csv", use_container_width=True)
+    else:
+        e2.info("Aún no hay encuestas finales registradas.")
 
 def admin_page(user):
     teacher_page = render_teacher_sidebar()
