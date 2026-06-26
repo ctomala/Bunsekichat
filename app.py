@@ -2043,6 +2043,9 @@ def generate_questions_with_ai(uid: int, plan_id=None, difficulty="Intermedio", 
     base_topics = profile["ranked_topics"] or [x.get("topic") for x in plan_topics if x.get("topic")] or list(TOPICS.keys())
     fallback = fallback_questions(n_questions, base_topics, assessment_context)
 
+    if is_research_quiz(quiz_type) and local_research_question_pool(assessment_context.get("subject", "")):
+        return fallback
+
     client = ai_client()
     if not client:
         return fallback
@@ -2145,7 +2148,7 @@ def create_adaptive_quiz(uid, plan_id=None, difficulty="Intermedio", n_questions
     title = "Evaluación adaptativa IA"
     if is_research_quiz(quiz_type):
         title = f"{quiz_type_label(quiz_type)} - {academic_context.get('subject') or 'Materia'}"
-    source_topic = ", ".join(sorted(set([q.get("topic","") for q in questions if q.get("topic")]))[:3])
+    source_topic = RESEARCH_FOCUS_TOPIC if is_research_quiz(quiz_type) else ", ".join(sorted(set([q.get("topic","") for q in questions if q.get("topic")]))[:3])
     row = execute("""
         INSERT INTO adaptive_quizzes(
             user_id, plan_id, title, quiz_type, source_topic, difficulty,
@@ -2182,6 +2185,22 @@ def get_latest_adaptive_quiz(uid, quiz_type=None):
     if quiz_type:
         return fetchone("SELECT * FROM adaptive_quizzes WHERE user_id=%s AND COALESCE(quiz_type,'adaptive')=%s ORDER BY id DESC LIMIT 1", (uid, quiz_type))
     return fetchone("SELECT * FROM adaptive_quizzes WHERE user_id=%s ORDER BY id DESC LIMIT 1", (uid,))
+
+
+def quiz_matches_research_focus(quiz):
+    if not quiz or not is_research_quiz(quiz.get("quiz_type")):
+        return True
+    source = strip_accents(quiz.get("source_topic") or "").lower()
+    focus = strip_accents(RESEARCH_FOCUS_TOPIC).lower()
+    if "aplicaciones" in focus and "derivada" in focus:
+        return "aplicaciones" in source and "derivada" in source
+    return focus in source
+
+
+def delete_adaptive_quiz(quiz_id):
+    with DB_LOCK:
+        execute("DELETE FROM adaptive_questions WHERE quiz_id=%s", (quiz_id,))
+        execute("DELETE FROM adaptive_quizzes WHERE id=%s", (quiz_id,))
 
 
 def grade_adaptive_quiz(quiz_id, answers: dict):
@@ -2392,6 +2411,7 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
         "Posttest": "posttest",
     }[mode_label]
     research_mode = is_research_quiz(quiz_type)
+    current_key = f"current_adaptive_quiz_id_{quiz_type}"
 
     profile = get_student_consultation_profile(user["id"])
     a,b,c = st.columns(3)
@@ -2429,13 +2449,34 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
             unsafe_allow_html=True,
         )
 
+    focus_mismatch = research_mode and last_quiz and not quiz_matches_research_focus(last_quiz)
+    if focus_mismatch:
+        st.warning(
+            f"Este {quiz_type_label(quiz_type).lower()} fue generado con un tema anterior "
+            f"({last_quiz.get('source_topic') or 'sin tema'}). Debe regenerarse con {RESEARCH_FOCUS_TOPIC}."
+        )
+        if last_quiz.get("status") == "completed":
+            st.error("Este instrumento ya fue completado. Para una prueba limpia usa un estudiante nuevo o elimina ese intento desde Supabase.")
+            return
+        if st.button(f"Regenerar {quiz_type_label(quiz_type)} con {RESEARCH_FOCUS_TOPIC}", use_container_width=True):
+            try:
+                with st.spinner(f"Regenerando {quiz_type_label(quiz_type).lower()}..."):
+                    delete_adaptive_quiz(last_quiz["id"])
+                    st.session_state.pop(current_key, None)
+                    quiz_id = create_adaptive_quiz(user["id"], plan_id, difficulty, n_questions, quiz_type=quiz_type, academic_context=academic_context)
+                st.session_state[current_key] = quiz_id
+                st.rerun()
+            except Exception as e:
+                st.error("No se pudo regenerar el instrumento.")
+                st.exception(e)
+        return
+
     if quiz_type == "posttest":
         if not completed_pretest or completed_pretest.get("status") != "completed":
             st.warning("El posttest se habilita cuando el estudiante haya completado el pretest.")
             return
         render_research_lesson_panel(user, academic_context, completed_pretest)
 
-    current_key = f"current_adaptive_quiz_id_{quiz_type}"
     col1, col2 = st.columns(2)
     can_generate = not (research_mode and last_quiz)
     generate_label = f"Iniciar {quiz_type_label(quiz_type)}" if research_mode else "Generar nueva evaluación IA"
