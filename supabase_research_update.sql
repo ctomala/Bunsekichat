@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS adaptive_questions(
     question TEXT NOT NULL,
     options_json TEXT,
     correct_answer TEXT,
+    item_code TEXT,
     position INTEGER,
     topic TEXT,
     subtopic TEXT,
@@ -108,12 +109,23 @@ CREATE TABLE IF NOT EXISTS research_survey_responses(
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS research_learning_events(
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    quiz_id INTEGER REFERENCES adaptive_quizzes(id) ON DELETE SET NULL,
+    event_type TEXT NOT NULL,
+    duration_seconds DOUBLE PRECISION,
+    metadata_json TEXT,
+    created_at TEXT NOT NULL
+);
+
 ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS subject TEXT;
 ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS course_level TEXT;
 ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS parallel TEXT;
 ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS shift TEXT;
 ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS cohort TEXT;
 ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS full_name_normalized TEXT;
+ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS research_group TEXT DEFAULT 'Sin asignar';
 ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS subject TEXT;
 ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS course_level TEXT;
 ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS parallel TEXT;
@@ -134,6 +146,7 @@ ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS cognitive_profil
 ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS learning_plan_json TEXT;
 ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS total_time_seconds DOUBLE PRECISION;
 ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS position INTEGER;
+ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS item_code TEXT;
 ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS topic TEXT;
 ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS subtopic TEXT;
 ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS dimension TEXT;
@@ -152,3 +165,4 @@ CREATE INDEX IF NOT EXISTS idx_adaptive_questions_quiz_id ON adaptive_questions(
 CREATE INDEX IF NOT EXISTS idx_profiles_cohort ON profiles(cohort);
 CREATE INDEX IF NOT EXISTS idx_research_exercise_attempts_user_id ON research_exercise_attempts(user_id);
 CREATE INDEX IF NOT EXISTS idx_research_survey_user_id ON research_survey_responses(user_id);
+CREATE INDEX IF NOT EXISTS idx_research_learning_events_user_id ON research_learning_events(user_id);

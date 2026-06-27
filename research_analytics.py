@@ -5,14 +5,13 @@ from __future__ import annotations
 import json
 import math
 import os
-import tempfile
 import warnings
 from datetime import datetime
 from io import BytesIO
 
-MATPLOTLIB_CACHE = os.path.join(tempfile.gettempdir(), "bunsekichat-matplotlib")
+MATPLOTLIB_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".matplotlib-cache")
 os.makedirs(MATPLOTLIB_CACHE, exist_ok=True)
-os.environ.setdefault("MPLCONFIGDIR", MATPLOTLIB_CACHE)
+os.environ["MPLCONFIGDIR"] = MATPLOTLIB_CACHE
 
 import matplotlib
 
@@ -128,35 +127,61 @@ def _descriptive(series):
     valid = values.dropna()
     if valid.empty:
         return {"n": 0, "missing": int(values.isna().sum())}
+    mean = float(valid.mean())
+    sd = float(valid.std(ddof=1)) if valid.size > 1 else np.nan
+    if valid.size > 1 and np.isfinite(sd):
+        margin = stats.t.ppf(0.975, valid.size - 1) * sd / math.sqrt(valid.size)
+        ci_low, ci_high = mean - margin, mean + margin
+    else:
+        ci_low = ci_high = np.nan
+    modes = valid.mode()
     return {
         "n": int(valid.size),
         "missing": int(values.isna().sum()),
-        "mean": float(valid.mean()),
-        "sd": float(valid.std(ddof=1)) if valid.size > 1 else np.nan,
+        "mean": mean,
+        "sd": sd,
+        "variance": sd ** 2 if np.isfinite(sd) else np.nan,
         "median": float(valid.median()),
+        "mode": float(modes.iloc[0]) if not modes.empty else np.nan,
         "q1": float(valid.quantile(0.25)),
         "q3": float(valid.quantile(0.75)),
         "min": float(valid.min()),
         "max": float(valid.max()),
+        "range": float(valid.max() - valid.min()),
         "skew": float(stats.skew(valid, bias=False)) if valid.size > 2 and valid.nunique() > 1 else np.nan,
+        "kurtosis": float(stats.kurtosis(valid, bias=False)) if valid.size > 3 and valid.nunique() > 1 else np.nan,
+        "ci_low": ci_low,
+        "ci_high": ci_high,
+        "cv_pct": abs(sd / mean * 100) if np.isfinite(sd) and mean != 0 else np.nan,
     }
 
 
 def _shapiro(values):
     values = pd.to_numeric(pd.Series(values), errors="coerce").dropna().to_numpy(dtype=float)
     if len(values) < 3:
-        return {"n": len(values), "statistic": np.nan, "p": np.nan, "status": "Requiere al menos 3 observaciones."}
+        return {"name": "No aplicable", "n": len(values), "statistic": np.nan, "p": np.nan, "status": "Requiere al menos 3 observaciones."}
     if np.ptp(values) == 0:
-        return {"n": len(values), "statistic": np.nan, "p": np.nan, "status": "Variable constante; normalidad no evaluable."}
+        return {"name": "No aplicable", "n": len(values), "statistic": np.nan, "p": np.nan, "status": "Variable constante; normalidad no evaluable."}
     evaluated = values[:5000]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = stats.shapiro(evaluated)
+        if len(values) >= 50:
+            try:
+                from statsmodels.stats.diagnostic import lilliefors
+                statistic, p_value = lilliefors(evaluated, dist="norm")
+                test_name = "Kolmogorov-Smirnov (Lilliefors)"
+            except Exception:
+                result = stats.shapiro(evaluated)
+                statistic, p_value, test_name = result.statistic, result.pvalue, "Shapiro-Wilk"
+        else:
+            result = stats.shapiro(evaluated)
+            statistic, p_value, test_name = result.statistic, result.pvalue, "Shapiro-Wilk"
     return {
+        "name": test_name,
         "n": len(values),
-        "statistic": float(result.statistic),
-        "p": float(result.pvalue),
-        "status": "Compatible con normalidad" if result.pvalue >= ALPHA else "Evidencia de no normalidad",
+        "statistic": float(statistic),
+        "p": float(p_value),
+        "status": "Compatible con normalidad" if p_value >= ALPHA else "Evidencia de no normalidad",
     }
 
 
@@ -727,13 +752,19 @@ def build_research_word_report(research_df, exercise_df=None, survey_df=None, fi
 
     doc.add_heading("4. Análisis exploratorio por variable", level=1)
     doc.add_heading("4.1 Variables cuantitativas principales", level=2)
-    numeric_rows = []
-    for label, series in [("Puntaje pretest", paired.get("pretest", [])), ("Puntaje postest", paired.get("posttest", [])), ("Ganancia", paired.get("gain", []))]:
-        desc = _descriptive(series)
-        numeric_rows.append([label, desc.get("n", 0), _number(desc.get("mean")), _number(desc.get("sd")), _number(desc.get("median")), f"{_number(desc.get('q1'))} - {_number(desc.get('q3'))}", f"{_number(desc.get('min'))} - {_number(desc.get('max'))}", _number(desc.get("skew"))])
+    numeric_sources = [("Puntaje pretest", paired.get("pretest", [])), ("Puntaje postest", paired.get("posttest", [])), ("Ganancia", paired.get("gain", []))]
     if "total_time_seconds" in latest.columns:
-        numeric_rows.append(["Tiempo total (segundos)", *_eda_row_values(_descriptive(latest["total_time_seconds"]))])
+        numeric_sources.append(("Tiempo total (segundos)", latest["total_time_seconds"]))
+    numeric_summaries = [(label, _descriptive(series)) for label, series in numeric_sources]
+    numeric_rows = []
+    for label, desc in numeric_summaries:
+        numeric_rows.append([label, desc.get("n", 0), _number(desc.get("mean")), _number(desc.get("sd")), _number(desc.get("median")), f"{_number(desc.get('q1'))} - {_number(desc.get('q3'))}", f"{_number(desc.get('min'))} - {_number(desc.get('max'))}", _number(desc.get("skew"))])
     _add_table(doc, ["Variable", "n", "Media", "DE", "Mediana", "RIC", "Mín-Máx", "Asimetría"], numeric_rows)
+    complementary_rows = [
+        [label, _number(desc.get("mode")), _number(desc.get("variance")), _number(desc.get("range")), _number(desc.get("kurtosis")), f"{_number(desc.get('ci_low'))} a {_number(desc.get('ci_high'))}", _number(desc.get("cv_pct"), 1, "%")]
+        for label, desc in numeric_summaries
+    ]
+    _add_table(doc, ["Variable", "Moda", "Varianza", "Rango", "Curtosis", "IC 95% media", "CV"], complementary_rows)
     _add_note(doc, "Lectura", "La media resume el centro, la DE la dispersión, el RIC el 50% central y la asimetría la forma de la distribución. Para resultados pretest-postest, la variable decisiva es la ganancia individual.")
 
     if len(paired):
@@ -745,7 +776,7 @@ def build_research_word_report(research_df, exercise_df=None, survey_df=None, fi
         _add_figure(doc, _gain_histogram(paired), figure_no, "Distribución de la ganancia", f"La ganancia media fue {_number(paired['gain'].mean())} puntos. Valores a la derecha de cero indican mejora y valores a la izquierda indican disminución.")
         figure_no += 1
         if len(paired) >= 3 and paired["gain"].nunique() > 1:
-            _add_figure(doc, _qq_plot(paired), figure_no, "Q-Q de las diferencias", "La cercanía de los puntos a la recta apoya normalidad aproximada. La decisión formal se complementa con Shapiro-Wilk y con el tamaño muestral.")
+            _add_figure(doc, _qq_plot(paired), figure_no, "Q-Q de las diferencias", "La cercanía de los puntos a la recta apoya normalidad aproximada. La decisión formal se complementa con Shapiro-Wilk o Lilliefors, según el tamaño muestral.")
             figure_no += 1
         _add_figure(doc, _prepost_scatter(paired), figure_no, "Relación pretest-postest", "Los puntos por encima de la diagonal representan estudiantes que mejoraron. La dispersión muestra heterogeneidad individual y posible dependencia del resultado final respecto del nivel inicial.")
         figure_no += 1
@@ -781,9 +812,9 @@ def build_research_word_report(research_df, exercise_df=None, survey_df=None, fi
     normality_rows = []
     for label, series in [("Pretest", paired.get("pretest", [])), ("Postest", paired.get("posttest", [])), ("Diferencia post-pre", paired.get("gain", []))]:
         normal = _shapiro(series)
-        normality_rows.append([label, normal["n"], _number(normal.get("statistic"), 3), _pvalue(normal.get("p")), normal["status"]])
-    _add_table(doc, ["Variable", "n", "W", "p", "Conclusión (α=0,05)"], normality_rows)
-    _add_note(doc, "Supuesto principal", "En una t pareada la normalidad corresponde a las diferencias, no a los puntajes pretest y postest considerados por separado. Con muestras pequeñas, Shapiro-Wilk tiene poca potencia; por eso se incluye Q-Q y Wilcoxon como sensibilidad.")
+        normality_rows.append([label, normal.get("name"), normal["n"], _number(normal.get("statistic"), 3), _pvalue(normal.get("p")), normal["status"]])
+    _add_table(doc, ["Variable", "Prueba", "n", "Estadístico", "p", "Conclusión (α=0,05)"], normality_rows)
+    _add_note(doc, "Supuesto principal", "En una t pareada la normalidad corresponde a las diferencias, no a los puntajes pretest y postest por separado. Se usa Shapiro-Wilk con n<50 y Lilliefors desde n=50; el gráfico Q-Q y Wilcoxon complementan la decisión.")
 
     test_rows = []
     for test in stat_result.get("tests", []):

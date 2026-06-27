@@ -4,6 +4,9 @@ plotly
 numpy
 scipy
 matplotlib
+statsmodels
+scikit-learn
+openpyxl
 python-dotenv
 google-genai
 bcrypt

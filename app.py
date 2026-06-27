@@ -17,6 +17,13 @@ except Exception as research_analytics_error:
     build_research_word_report = None
     RESEARCH_ANALYTICS_IMPORT_ERROR = str(research_analytics_error)
 
+try:
+    from research_engine import build_scientific_package
+    RESEARCH_ENGINE_IMPORT_ERROR = ""
+except Exception as research_engine_error:
+    build_scientific_package = None
+    RESEARCH_ENGINE_IMPORT_ERROR = str(research_engine_error)
+
 # Exportaciones opcionales: instalar python-docx y reportlab para Word/PDF.
 try:
     from docx import Document
@@ -109,6 +116,7 @@ RESEARCH_TEST_TYPES = {
     "pretest": "Pretest",
     "posttest": "Posttest",
 }
+RESEARCH_GROUPS = ["Sin asignar", "Experimental", "Control"]
 RESEARCH_DIMENSION_BLUEPRINT = [
     {"dimension": "Comprensión conceptual", "weight": 0.20, "indicator": "Interpreta la derivada como tasa de cambio", "competence": "Comprende conceptos fundamentales"},
     {"dimension": "Procedimientos", "weight": 0.25, "indicator": "Aplica reglas y criterios de derivación en contextos", "competence": "Ejecuta procedimientos matemáticos"},
@@ -975,6 +983,7 @@ def init_db():
                     shift TEXT,
                     cohort TEXT,
                     full_name_normalized TEXT,
+                    research_group TEXT DEFAULT 'Sin asignar',
                     teacher TEXT,
                     phone TEXT,
                     province TEXT,
@@ -1095,6 +1104,7 @@ def init_db():
                     question TEXT NOT NULL,
                     options_json TEXT,
                     correct_answer TEXT,
+                    item_code TEXT,
                     position INTEGER,
                     topic TEXT,
                     subtopic TEXT,
@@ -1136,6 +1146,15 @@ def init_db():
                     score INTEGER,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS research_learning_events(
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    quiz_id INTEGER REFERENCES adaptive_quizzes(id) ON DELETE SET NULL,
+                    event_type TEXT NOT NULL,
+                    duration_seconds DOUBLE PRECISION,
+                    metadata_json TEXT,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS settings(
                     key TEXT PRIMARY KEY,
                     value TEXT
@@ -1155,6 +1174,7 @@ def init_db():
                 ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS shift TEXT;
                 ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS cohort TEXT;
                 ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS full_name_normalized TEXT;
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS research_group TEXT DEFAULT 'Sin asignar';
                 ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS subject TEXT;
                 ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS course_level TEXT;
                 ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS parallel TEXT;
@@ -1175,6 +1195,7 @@ def init_db():
                 ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS learning_plan_json TEXT;
                 ALTER TABLE IF EXISTS adaptive_quizzes ADD COLUMN IF NOT EXISTS total_time_seconds DOUBLE PRECISION;
                 ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS position INTEGER;
+                ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS item_code TEXT;
                 ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS topic TEXT;
                 ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS subtopic TEXT;
                 ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS dimension TEXT;
@@ -1189,6 +1210,7 @@ def init_db():
                 CREATE INDEX IF NOT EXISTS idx_adaptive_quizzes_research ON adaptive_quizzes(quiz_type, subject, course_level, parallel, shift);
                 CREATE INDEX IF NOT EXISTS idx_research_exercise_attempts_user_id ON research_exercise_attempts(user_id);
                 CREATE INDEX IF NOT EXISTS idx_research_survey_user_id ON research_survey_responses(user_id);
+                CREATE INDEX IF NOT EXISTS idx_research_learning_events_user_id ON research_learning_events(user_id);
                 """)
                 cur.execute("INSERT INTO settings(key,value) VALUES('session_timeout_minutes', %s) ON CONFLICT (key) DO NOTHING", (str(SESSION_TIMEOUT_MINUTES),))
                 cur.execute("SELECT id FROM users WHERE username=%s", (ADMIN_USER,))
@@ -1427,6 +1449,13 @@ def log_interaction(uid, role, message, topic='', subtopic='', level='', model='
     gps = gps or st.session_state.get('current_gps') or {}
     with DB_LOCK:
         execute("""INSERT INTO interactions(user_id,role,topic,subtopic,level,message,clean_message,model,tokens_est,latency_ms,created_at,gps_lat,gps_lon,gps_accuracy,gps_source) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (uid, role, topic, subtopic, level, message, clean, model, max(1, len(message)//4), latency, now(), gps.get('lat') if gps else None, gps.get('lon') if gps else None, gps.get('accuracy') if gps else None, gps.get('source') if gps else None))
+
+
+def log_research_learning_event(uid, event_type, quiz_id=None, duration_seconds=None, metadata=None):
+    execute("""
+        INSERT INTO research_learning_events(user_id, quiz_id, event_type, duration_seconds, metadata_json, created_at)
+        VALUES(%s,%s,%s,%s,%s,%s)
+    """, (uid, quiz_id, event_type, duration_seconds, json.dumps(metadata or {}, ensure_ascii=False), now()))
 
 
 def interactions(uid=None):
@@ -2063,6 +2092,20 @@ def assessment_version_from_seed(seed):
         return random.choice(versions)
 
 
+def research_form_version(uid, academic_context):
+    context = academic_context or {}
+    raw = "|".join([
+        str(uid), str(context.get("subject", "")), str(context.get("course_level", "")),
+        str(context.get("parallel", "")), str(context.get("shift", "")), RESEARCH_FOCUS_TOPIC,
+    ])
+    return assessment_version_from_seed(hashlib.sha256(raw.encode("utf-8")).hexdigest())
+
+
+def stable_item_code(question_text):
+    normalized = strip_accents(normalize_spaces(question_text)).lower()
+    return "ITM-" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12].upper()
+
+
 def enrich_research_questions(questions, n_questions):
     blueprint = research_blueprint_sequence(n_questions)
     enriched = []
@@ -2225,7 +2268,7 @@ def normalize_question_payload(question):
     question_text = normalize_spaces(question.get("question", ""))
     if not question_text:
         return None
-    return {
+    payload = {
         "question": question_text,
         "options": opts,
         "correct_answer": correct,
@@ -2233,6 +2276,29 @@ def normalize_question_payload(question):
         "bloom_level": normalize_spaces(question.get("bloom_level", "Aplicar")) or "Aplicar",
         "topic": normalize_spaces(question.get("topic", "")),
     }
+    for key in ["subtopic", "dimension", "indicator", "competence", "difficulty_level"]:
+        if question.get(key):
+            payload[key] = normalize_spaces(question.get(key))
+    payload["item_code"] = normalize_spaces(question.get("item_code")) or stable_item_code(question_text)
+    return payload
+
+
+def standardized_research_form(questions, quiz_type, version_code, n_questions, academic_context):
+    clean, seen = [], set()
+    for question in questions:
+        item = normalize_question_payload(question)
+        if not item or item["item_code"] in seen:
+            continue
+        seen.add(item["item_code"])
+        clean.append(item)
+    form_raw = "|".join([
+        str((academic_context or {}).get("subject", "")), RESEARCH_FOCUS_TOPIC,
+        str(quiz_type), str(version_code), str(n_questions),
+    ])
+    form_rng = random.Random(hashlib.sha256(form_raw.encode("utf-8")).hexdigest())
+    form_rng.shuffle(clean)
+    selected = clean[:int(n_questions)]
+    return enrich_research_questions(selected, n_questions)
 
 
 def randomize_questions_for_student(questions, uid, quiz_type, n_questions, seed):
@@ -2370,10 +2436,13 @@ def create_adaptive_quiz(uid, plan_id=None, difficulty="Intermedio", n_questions
     if len(questions) < int(n_questions):
         questions.extend(fallback_questions(n_questions, assessment_context=assessment_context))
     random_seed = make_assessment_seed(uid, quiz_type, academic_context)
-    questions = randomize_questions_for_student(questions, uid, quiz_type, n_questions, random_seed)
     if is_research_quiz(quiz_type):
-        questions = enrich_research_questions(questions, n_questions)
-    version_code = assessment_version_from_seed(random_seed) if is_research_quiz(quiz_type) else ""
+        version_code = research_form_version(uid, academic_context)
+        questions = standardized_research_form(questions, quiz_type, version_code, n_questions, academic_context)
+        questions = randomize_questions_for_student(questions, uid, quiz_type, n_questions, random_seed)
+    else:
+        version_code = ""
+        questions = randomize_questions_for_student(questions, uid, quiz_type, n_questions, random_seed)
     title = "Evaluación adaptativa IA"
     if is_research_quiz(quiz_type):
         title = f"{quiz_type_label(quiz_type)} - {academic_context.get('subject') or 'Materia'}"
@@ -2397,13 +2466,14 @@ def create_adaptive_quiz(uid, plan_id=None, difficulty="Intermedio", n_questions
     for position, q in enumerate(questions, start=1):
         execute("""
             INSERT INTO adaptive_questions(
-                quiz_id, question, options_json, correct_answer, position, topic, subtopic,
+                quiz_id, question, options_json, correct_answer, item_code, position, topic, subtopic,
                 dimension, indicator, competence, difficulty_level, explanation, bloom_level
             )
-            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
             quiz_id, q["question"], json.dumps(q["options"], ensure_ascii=False),
-            q["correct_answer"], position, q.get("topic",""), q.get("subtopic",""),
+            q["correct_answer"], q.get("item_code") or stable_item_code(q["question"]),
+            position, q.get("topic",""), q.get("subtopic",""),
             q.get("dimension",""), q.get("indicator",""), q.get("competence",""),
             q.get("difficulty_level",""), q.get("explanation",""), q.get("bloom_level","Aplicar")
         ))
@@ -2611,6 +2681,10 @@ def render_research_lesson_panel(user, academic_context, pretest_quiz):
             model="gemini-2.5-flash",
             latency=0,
         )
+        log_research_learning_event(
+            user["id"], "class_generated", quiz_id=pretest_quiz["id"],
+            metadata={"topic": RESEARCH_FOCUS_TOPIC, "model": "gemini-2.5-flash"},
+        )
         st.rerun()
     if st.session_state.get(lesson_key):
         st.markdown(st.session_state[lesson_key])
@@ -2668,6 +2742,10 @@ def render_guided_exercises_panel(user, academic_context, pretest_quiz):
                 text, json.dumps(options, ensure_ascii=False), correct, user_answer,
                 difficulty, ok, feedback, now()
             ))
+        log_research_learning_event(
+            user["id"], "guided_exercises_completed", quiz_id=pretest_quiz["id"],
+            metadata={"exercise_count": len(exercises), "correct_count": correct_count, "feedback_count": len(exercises)},
+        )
         st.success(f"Ejercicios revisados: {correct_count}/{len(exercises)} correctos.")
         if correct_count < len(exercises) * 0.7:
             st.warning("Recomendación adaptativa: vuelve a revisar la clase IA y practica ejercicios similares de dificultad fácil/media.")
@@ -2761,6 +2839,7 @@ def render_teacher_plan_manager(user):
 
 def render_student_adaptive_evaluation(user, prof, topic, subtopic):
     academic_context = academic_context_from_profile(prof)
+    is_control_group = str(prof.get("research_group") or "").strip().lower() == "control"
     st.markdown("""
     <div class='eval-hero'>
         <h2>🧠 Evaluación e investigación</h2>
@@ -2844,8 +2923,11 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
         if not completed_pretest or completed_pretest.get("status") != "completed":
             st.warning("El posttest se habilita cuando el estudiante haya completado el pretest.")
             return
-        render_research_lesson_panel(user, academic_context, completed_pretest)
-        render_guided_exercises_panel(user, academic_context, completed_pretest)
+        if is_control_group:
+            st.info("Grupo control: continúa con el postest según el protocolo, sin intervención del tutor IA.")
+        else:
+            render_research_lesson_panel(user, academic_context, completed_pretest)
+            render_guided_exercises_panel(user, academic_context, completed_pretest)
 
     col1, col2 = st.columns(2)
     can_generate = not (research_mode and last_quiz)
@@ -2915,10 +2997,14 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
             icon = "✅" if q.get("is_correct") else "❌"
             st.markdown(f"<div class='eval-question'><b>{icon} {q.get('question')}</b><br><span class='small'>Tu respuesta: {q.get('user_answer') or 'Sin respuesta'} · Correcta: {q.get('correct_answer')}</span><br><br>{q.get('explanation') or ''}</div>", unsafe_allow_html=True)
         if (quiz.get("quiz_type") or quiz_type) == "pretest":
-            render_research_lesson_panel(user, academic_context, quiz)
-            render_guided_exercises_panel(user, academic_context, quiz)
+            if is_control_group:
+                st.info("Grupo control: espera el momento establecido por el docente para realizar el postest.")
+            else:
+                render_research_lesson_panel(user, academic_context, quiz)
+                render_guided_exercises_panel(user, academic_context, quiz)
         if (quiz.get("quiz_type") or quiz_type) == "posttest":
-            render_final_survey(user, quiz)
+            if not is_control_group:
+                render_final_survey(user, quiz)
         return
 
     with st.form(f"adaptive_quiz_form_{quiz_id}"):
@@ -2972,9 +3058,11 @@ def sidebar_brand(role_label: str, subtitle: str):
 def render_student_sidebar(prof):
     sidebar_brand("Estudiante", "Tutor matemático universitario")
     st.sidebar.markdown("<div class='saas-section-title'>Navegación</div>", unsafe_allow_html=True)
+    is_control_group = str(prof.get("research_group") or "").strip().lower() == "control"
+    student_pages = ["🧠 Evaluación IA", "📈 Mi progreso"] if is_control_group else ["💬 Tutor", "🧠 Evaluación IA", "📘 Descargar aprendizaje", "🎮 Prueba de nivel", "📈 Mi progreso"]
     page = st.sidebar.radio(
         "Menú del estudiante",
-        ["💬 Tutor", "🧠 Evaluación IA", "📘 Descargar aprendizaje", "🎮 Prueba de nivel", "📈 Mi progreso"],
+        student_pages,
         label_visibility="collapsed",
         key="student_nav"
     )
@@ -2984,7 +3072,7 @@ def render_student_sidebar(prof):
     level = prof.get("level") or "Inicial"
     academic_context = academic_context_from_profile(prof)
     st.sidebar.markdown(
-        f"<div class='saas-help-card'><b>Nivel actual:</b> {level}<br><b>Materia:</b> {academic_context.get('subject') or 'Sin materia'}<br><b>Curso:</b> {academic_context.get('cohort') or 'Sin curso'}</div>",
+        f"<div class='saas-help-card'><b>Nivel actual:</b> {level}<br><b>Materia:</b> {academic_context.get('subject') or 'Sin materia'}<br><b>Curso:</b> {academic_context.get('cohort') or 'Sin curso'}<br><b>Grupo:</b> {prof.get('research_group') or 'Sin asignar'}</div>",
         unsafe_allow_html=True
     )
     st.sidebar.markdown("<div class='saas-section-title'>Sesión</div>", unsafe_allow_html=True)
@@ -3392,6 +3480,7 @@ def get_research_results():
             aq.created_at, aq.completed_at, aq.research_title, aq.random_seed,
             u.username,
             p.first_names, p.last_names, p.full_name_normalized,
+            COALESCE(NULLIF(p.research_group,''), 'Sin asignar') AS research_group,
             COALESCE(aq.subject, p.subject) AS profile_subject,
             COALESCE(aq.course_level, p.course_level) AS profile_course_level,
             COALESCE(aq.parallel, p.parallel) AS profile_parallel,
@@ -3402,6 +3491,56 @@ def get_research_results():
         LEFT JOIN profiles p ON p.user_id=aq.user_id
         WHERE COALESCE(aq.quiz_type,'adaptive') IN ('pretest','posttest')
         ORDER BY aq.id DESC
+    """)
+
+
+def get_research_students():
+    return fetchall("""
+        SELECT u.id AS user_id, u.username, p.first_names, p.last_names,
+               p.full_name_normalized, p.subject, p.course_level, p.parallel,
+               p.shift, p.cohort, COALESCE(NULLIF(p.research_group,''), 'Sin asignar') AS research_group
+        FROM users u
+        JOIN profiles p ON p.user_id=u.id
+        WHERE LOWER(COALESCE(u.role,'student'))='student'
+        ORDER BY p.last_names, p.first_names, u.username
+    """)
+
+
+def get_research_item_responses():
+    return fetchall("""
+        SELECT q.id, q.quiz_id, aq.user_id, aq.quiz_type, aq.version_code,
+               aq.subject, aq.course_level, aq.parallel, aq.shift, aq.cohort,
+               COALESCE(NULLIF(p.research_group,''), 'Sin asignar') AS research_group,
+               COALESCE(NULLIF(q.item_code,''), 'LEGACY-' || q.id::text) AS item_code,
+               q.question, q.position, q.dimension, q.difficulty_level, q.bloom_level,
+               q.is_correct, q.response_time_seconds, q.conceptual_error
+        FROM adaptive_questions q
+        JOIN adaptive_quizzes aq ON aq.id=q.quiz_id
+        LEFT JOIN profiles p ON p.user_id=aq.user_id
+        WHERE COALESCE(aq.quiz_type,'adaptive') IN ('pretest','posttest')
+          AND aq.status='completed'
+        ORDER BY q.quiz_id, q.position, q.id
+    """)
+
+
+def get_research_learning_events():
+    return fetchall("""
+        SELECT rle.*, COALESCE(NULLIF(p.research_group,''), 'Sin asignar') AS research_group
+        FROM research_learning_events rle
+        LEFT JOIN profiles p ON p.user_id=rle.user_id
+        ORDER BY rle.id
+    """)
+
+
+def get_research_interactions():
+    return fetchall("""
+        SELECT i.id, i.user_id, i.role, i.topic, i.subtopic, i.latency_ms, i.created_at
+        FROM interactions i
+        WHERE EXISTS (
+            SELECT 1 FROM adaptive_quizzes aq
+            WHERE aq.user_id=i.user_id AND COALESCE(aq.quiz_type,'adaptive') IN ('pretest','posttest')
+        )
+        ORDER BY i.user_id, i.created_at, i.id
     """)
 
 
@@ -3433,6 +3572,28 @@ def render_teacher_research_dashboard(user):
     </div>
     """, unsafe_allow_html=True)
 
+    research_students = pd.DataFrame(get_research_students())
+    with st.expander("Asignación de grupo experimental/control", expanded=False):
+        st.caption("La asignación la realiza el docente. El estudiante no puede modificar su grupo de investigación.")
+        if research_students.empty:
+            st.info("Aún no existen estudiantes registrados.")
+        else:
+            student_ids = research_students["user_id"].tolist()
+            labels = {
+                row["user_id"]: (row.get("full_name_normalized") or f"{row.get('first_names') or ''} {row.get('last_names') or ''}".strip() or row.get("username"))
+                + f" · {row.get('cohort') or 'Sin cohorte'} · {row.get('research_group') or 'Sin asignar'}"
+                for _, row in research_students.iterrows()
+            }
+            with st.form("research_group_assignment"):
+                selected_student_id = st.selectbox("Estudiante", student_ids, format_func=lambda value: labels.get(value, str(value)))
+                current_group = research_students.loc[research_students["user_id"].eq(selected_student_id), "research_group"].iloc[0]
+                selected_group = st.selectbox("Grupo de investigación", RESEARCH_GROUPS, index=RESEARCH_GROUPS.index(current_group) if current_group in RESEARCH_GROUPS else 0)
+                assign_group = st.form_submit_button("Guardar asignación", use_container_width=True)
+            if assign_group:
+                update_profile(int(selected_student_id), {"research_group": selected_group})
+                st.success(f"Grupo actualizado: {selected_group}.")
+                st.rerun()
+
     df = pd.DataFrame(get_research_results())
     if df.empty:
         st.info("Aún no existen pretest o posttest registrados.")
@@ -3443,7 +3604,7 @@ def render_teacher_research_dashboard(user):
         lambda r: r.get("full_name_normalized") or f"{r.get('first_names') or ''} {r.get('last_names') or ''}".strip() or r.get("username"),
         axis=1,
     )
-    for col in ["profile_subject", "profile_course_level", "profile_parallel", "profile_shift", "profile_cohort", "quiz_type", "status"]:
+    for col in ["profile_subject", "profile_course_level", "profile_parallel", "profile_shift", "profile_cohort", "research_group", "quiz_type", "status"]:
         if col not in df.columns:
             df[col] = ""
 
@@ -3451,18 +3612,21 @@ def render_teacher_research_dashboard(user):
         values = sorted([str(x).strip() for x in df[col].dropna().unique() if str(x).strip()])
         return ["Todos"] + values
 
-    f1, f2, f3, f4, f5 = st.columns(5)
+    f1, f2, f3 = st.columns(3)
     sel_subject = f1.selectbox("Materia", opts("profile_subject"), key="research_subject_filter")
     sel_course = f2.selectbox("Curso", opts("profile_course_level"), key="research_course_filter")
     sel_parallel = f3.selectbox("Paralelo", opts("profile_parallel"), key="research_parallel_filter")
+    f4, f5, f6 = st.columns(3)
     sel_shift = f4.selectbox("Jornada", opts("profile_shift"), key="research_shift_filter")
-    sel_type = f5.selectbox("Instrumento", ["Todos", "pretest", "posttest"], key="research_type_filter")
+    sel_group = f5.selectbox("Grupo", opts("research_group"), key="research_group_filter")
+    sel_type = f6.selectbox("Instrumento", ["Todos", "pretest", "posttest"], key="research_type_filter")
 
     cohort_filtered = df.copy()
     if sel_subject != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["profile_subject"].astype(str) == sel_subject]
     if sel_course != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["profile_course_level"].astype(str) == sel_course]
     if sel_parallel != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["profile_parallel"].astype(str) == sel_parallel]
     if sel_shift != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["profile_shift"].astype(str) == sel_shift]
+    if sel_group != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["research_group"].astype(str) == sel_group]
 
     # La vista puede mostrar un instrumento, pero el informe inferencial siempre
     # conserva pretest y postest de la cohorte para mantener el emparejamiento.
@@ -3506,7 +3670,7 @@ def render_teacher_research_dashboard(user):
 
     view_cols = [c for c in [
         "id", "student", "username", "quiz_type", "score", "passed", "status",
-        "profile_subject", "profile_cohort", "profile_course_level", "profile_parallel", "profile_shift",
+        "profile_subject", "profile_cohort", "profile_course_level", "profile_parallel", "profile_shift", "research_group",
         "question_count", "version_code", "cognitive_profile", "total_time_seconds",
         "dimension_scores_json", "created_at", "completed_at", "random_seed"
     ] if c in filtered.columns]
@@ -3527,6 +3691,9 @@ def render_teacher_research_dashboard(user):
     )
     all_exercise_df = pd.DataFrame(get_research_exercise_attempts())
     all_survey_df = pd.DataFrame(get_research_survey_responses())
+    all_item_df = pd.DataFrame(get_research_item_responses())
+    all_event_df = pd.DataFrame(get_research_learning_events())
+    all_interaction_df = pd.DataFrame(get_research_interactions())
     allowed_user_ids = set(pd.to_numeric(cohort_filtered.get("user_id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int))
     allowed_quiz_ids = set(pd.to_numeric(cohort_filtered.get("id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int))
 
@@ -3542,11 +3709,15 @@ def render_teacher_research_dashboard(user):
 
     exercise_df = related_research_rows(all_exercise_df)
     survey_df = related_research_rows(all_survey_df)
+    item_df = related_research_rows(all_item_df)
+    event_df = related_research_rows(all_event_df)
+    interaction_df = related_research_rows(all_interaction_df)
     report_filters = {
         "subject": sel_subject,
         "course": sel_course,
         "parallel": sel_parallel,
         "shift": sel_shift,
+        "group": sel_group,
     }
     report_state_cols = [col for col in ["id", "user_id", "quiz_type", "status", "score", "completed_at", "dimension_scores_json"] if col in cohort_filtered.columns]
     signature_payload = {
@@ -3554,44 +3725,60 @@ def render_teacher_research_dashboard(user):
         "research": cohort_filtered[report_state_cols].fillna("").astype(str).to_dict(orient="records"),
         "exercise_ids": sorted(pd.to_numeric(exercise_df.get("id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int).tolist()),
         "survey_ids": sorted(pd.to_numeric(survey_df.get("id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int).tolist()),
+        "item_ids": sorted(pd.to_numeric(item_df.get("id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int).tolist()),
+        "event_ids": sorted(pd.to_numeric(event_df.get("id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int).tolist()),
+        "interaction_ids": sorted(pd.to_numeric(interaction_df.get("id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int).tolist()),
     }
     report_signature = hashlib.sha256(json.dumps(signature_payload, sort_keys=True).encode("utf-8")).hexdigest()
 
-    st.markdown("<div class='teacher-card'><h3>Informe estadístico integral</h3><p class='small'>EDA, calidad de datos, normalidad, hipótesis pareadas, tamaños del efecto, dimensiones, encuesta y ejercicios, con gráficos e interpretación automática.</p></div>", unsafe_allow_html=True)
-    if build_research_word_report is None:
-        st.error(f"El módulo estadístico no está disponible. Verifica scipy y matplotlib. Detalle: {RESEARCH_ANALYTICS_IMPORT_ERROR}")
-    else:
-        if st.button("Generar análisis EDA e inferencial en Word", key="generate_research_word", use_container_width=True):
+    st.markdown("<div class='teacher-card'><h3>Motor Estadístico-Predictivo</h3><p class='small'>EDA, psicometría, hipótesis, comparación de grupos, ANCOVA, correlaciones, predicción, riesgo académico y exportación científica reproducible.</p></div>", unsafe_allow_html=True)
+    safe_group = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{sel_course}_{sel_parallel}_{sel_shift}_{sel_group}").strip("_") or "cohorte"
+    if build_scientific_package is not None:
+        if st.button("Generar paquete científico completo", key="generate_scientific_package", use_container_width=True):
             try:
-                with st.spinner("Calculando pruebas y preparando el documento Word..."):
-                    st.session_state["research_word_report"] = build_research_word_report(
+                with st.spinner("Validando datos, ejecutando pruebas y construyendo informes..."):
+                    st.session_state["scientific_package"] = build_scientific_package(
                         cohort_filtered,
                         exercise_df=exercise_df,
                         survey_df=survey_df,
+                        interaction_df=interaction_df,
+                        event_df=event_df,
+                        item_df=item_df,
                         filters=report_filters,
                         research_title=RESEARCH_TITLE,
                     )
-                    st.session_state["research_word_signature"] = report_signature
-                st.success("Informe estadístico generado correctamente.")
+                    st.session_state["scientific_package_signature"] = report_signature
+                st.success("Paquete científico generado correctamente.")
             except Exception as report_error:
-                st.error(f"No se pudo generar el informe: {report_error}")
+                st.error(f"No se pudo generar el paquete científico: {report_error}")
+        package = st.session_state.get("scientific_package") if st.session_state.get("scientific_package_signature") == report_signature else None
+        if package:
+            summary = package.get("summary", {})
+            s1, s2, s3, s4 = st.columns(4)
+            s1.metric("Estudiantes", summary.get("students", 0))
+            s2.metric("Pares completos", summary.get("paired", 0))
+            s3.metric("Formas psicométricas", summary.get("psychometric_forms", 0))
+            s4.metric("Comparaciones de grupo", summary.get("group_comparisons", 0))
+            d1, d2, d3 = st.columns(3)
+            d1.download_button("Descargar paquete ZIP", package["zip"], f"paquete_cientifico_{safe_group}.zip", "application/zip", use_container_width=True)
+            d2.download_button("Descargar informe Word", package["word"], f"informe_predictivo_{safe_group}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+            d3.download_button("Descargar informe PDF", package["pdf"], f"informe_predictivo_{safe_group}.pdf", "application/pdf", use_container_width=True)
+            d4, d5, d6 = st.columns(3)
+            d4.download_button("Descargar tablas Excel", package["excel"], f"tablas_dataset_{safe_group}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            d5.download_button("Descargar dataset limpio", package["csv"], f"dataset_procesado_{safe_group}.csv", "text/csv", use_container_width=True)
+            d6.download_button("Descargar reporte JSON", package["json"], f"reporte_estadistico_{safe_group}.json", "application/json", use_container_width=True)
+            for warning in summary.get("warnings", []):
+                st.info(warning)
+    elif build_research_word_report is not None:
+        st.warning(f"El motor predictivo no está disponible; se mantiene el informe estadístico base. Detalle: {RESEARCH_ENGINE_IMPORT_ERROR}")
+        if st.button("Generar análisis EDA e inferencial en Word", key="generate_research_word", use_container_width=True):
+            st.session_state["research_word_report"] = build_research_word_report(cohort_filtered, exercise_df, survey_df, report_filters, RESEARCH_TITLE)
+            st.session_state["research_word_signature"] = report_signature
         if st.session_state.get("research_word_signature") == report_signature and st.session_state.get("research_word_report"):
-            safe_group = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{sel_course}_{sel_parallel}_{sel_shift}").strip("_") or "cohorte"
-            st.download_button(
-                "Descargar informe estadístico Word",
-                st.session_state["research_word_report"],
-                f"informe_estadistico_bunsekichat_{safe_group}.docx",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key="download_research_word",
-                use_container_width=True,
-            )
-        st.caption("El Word usa los filtros académicos seleccionados y analiza conjuntamente pretest y postest, aunque la tabla visible muestre un solo instrumento.")
-
-    r_script = "datos <- read.csv('investigacion_pretest_posttest_bunsekichat.csv')\nsummary(datos)\nboxplot(score ~ quiz_type, data=datos)\n"
-    py_script = "import pandas as pd\nimport seaborn as sns\nimport matplotlib.pyplot as plt\n\ndf = pd.read_csv('investigacion_pretest_posttest_bunsekichat.csv')\nprint(df.groupby('quiz_type')['score'].describe())\nsns.boxplot(data=df, x='quiz_type', y='score')\nplt.show()\n"
-    r1, r2 = st.columns(2)
-    r1.download_button("Script R", r_script.encode("utf-8"), "analisis_bunsekichat.R", "text/plain", use_container_width=True)
-    r2.download_button("Script Python", py_script.encode("utf-8"), "analisis_bunsekichat.py", "text/plain", use_container_width=True)
+            st.download_button("Descargar informe estadístico Word", st.session_state["research_word_report"], f"informe_estadistico_{safe_group}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+    else:
+        st.error(f"Los módulos estadísticos no están disponibles: {RESEARCH_ANALYTICS_IMPORT_ERROR}; {RESEARCH_ENGINE_IMPORT_ERROR}")
+    st.caption("El análisis usa los filtros académicos y de grupo seleccionados; integra pretest y postest aunque la tabla visible muestre un instrumento.")
 
     e1, e2 = st.columns(2)
     if not exercise_df.empty:
