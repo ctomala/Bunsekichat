@@ -1318,6 +1318,32 @@ def init_db():
                     SELECT 1 FROM adaptive_quizzes aq
                     WHERE aq.user_id=p.user_id AND aq.quiz_type='posttest' AND aq.status='completed'
                 );
+                CREATE OR REPLACE VIEW research_student_registry AS
+                SELECT
+                    u.id AS user_id,
+                    p.cedula,
+                    p.first_names AS nombres,
+                    p.last_names AS apellidos,
+                    p.correo,
+                    p.subject AS materia,
+                    p.course_level AS curso,
+                    p.parallel AS paralelo,
+                    p.shift AS jornada,
+                    p.research_group AS grupo_investigacion,
+                    p.cohort AS cohorte,
+                    p.estado_dato,
+                    p.usar_en_investigacion,
+                    p.consentimiento_informado,
+                    p.fecha_consentimiento,
+                    p.pretest_estado,
+                    p.posttest_estado,
+                    u.password_temporal,
+                    u.primer_ingreso,
+                    u.active,
+                    u.created_at
+                FROM users u
+                JOIN profiles p ON p.user_id=u.id
+                WHERE LOWER(COALESCE(u.role, 'student'))='student';
                 """)
                 cur.execute("INSERT INTO settings(key,value) VALUES('session_timeout_minutes', %s) ON CONFLICT (key) DO NOTHING", (str(SESSION_TIMEOUT_MINUTES),))
                 cur.execute("SELECT id FROM users WHERE username=%s", (ADMIN_USER,))
