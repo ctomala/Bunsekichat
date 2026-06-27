@@ -1,6 +1,6 @@
 import os, re, json, hashlib, time, threading, random, unicodedata
 from datetime import datetime, date, timedelta
-from io import BytesIO
+from io import BytesIO, StringIO
 
 import pandas as pd
 import plotly.express as px
@@ -9,6 +9,13 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 from google import genai
+
+from cohort_management import (
+    OFFICIAL_COHORT_CODE,
+    build_enrollment_template_excel,
+    generate_temporary_password,
+    prepare_enrollment_dataframe,
+)
 
 try:
     from research_analytics import build_research_word_report
@@ -117,6 +124,17 @@ RESEARCH_TEST_TYPES = {
     "posttest": "Posttest",
 }
 RESEARCH_GROUPS = ["Sin asignar", "Experimental", "Control"]
+DATA_STATUSES = ["piloto", "oficial"]
+INFORMED_CONSENT_VERSION = "BUNSEKI-CALCULOI-2026-v1"
+INFORMED_CONSENT_TEXT = """
+### Consentimiento informado para participar en la investigación
+
+**Título:** Efectos de un Tutor Inteligente basado en Inteligencia Artificial Generativa sobre el Rendimiento Académico en Cálculo Diferencial en la Universidad de Guayaquil.
+
+Su participación es voluntaria. La investigación analizará resultados de pretest y postest, actividad académica dentro de BunsekiChat, tiempo de uso, ejercicios y percepción de la herramienta. Los datos se tratarán con fines académicos y se exportarán mediante un identificador controlado por el equipo investigador.
+
+Participar o no participar no debe producir sanciones académicas. Puede solicitar aclaraciones o retirar su autorización antes del cierre de la base oficial. La aceptación confirma que leyó esta información y autoriza el uso de sus datos dentro de la cohorte indicada.
+"""
 RESEARCH_DIMENSION_BLUEPRINT = [
     {"dimension": "Comprensión conceptual", "weight": 0.20, "indicator": "Interpreta la derivada como tasa de cambio", "competence": "Comprende conceptos fundamentales"},
     {"dimension": "Procedimientos", "weight": 0.25, "indicator": "Aplica reglas y criterios de derivación en contextos", "competence": "Ejecuta procedimientos matemáticos"},
@@ -969,7 +987,9 @@ def init_db():
                     role TEXT DEFAULT 'student',
                     active BOOLEAN DEFAULT TRUE,
                     created_at TEXT NOT NULL,
-                    last_login TEXT
+                    last_login TEXT,
+                    password_temporal BOOLEAN NOT NULL DEFAULT FALSE,
+                    primer_ingreso BOOLEAN NOT NULL DEFAULT FALSE
                 );
                 CREATE TABLE IF NOT EXISTS profiles(
                     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -984,6 +1004,14 @@ def init_db():
                     cohort TEXT,
                     full_name_normalized TEXT,
                     research_group TEXT DEFAULT 'Sin asignar',
+                    cedula TEXT,
+                    correo TEXT,
+                    estado_dato TEXT NOT NULL DEFAULT 'piloto',
+                    usar_en_investigacion BOOLEAN NOT NULL DEFAULT FALSE,
+                    consentimiento_informado BOOLEAN NOT NULL DEFAULT FALSE,
+                    fecha_consentimiento TEXT,
+                    pretest_estado TEXT NOT NULL DEFAULT 'pendiente',
+                    posttest_estado TEXT NOT NULL DEFAULT 'pendiente',
                     teacher TEXT,
                     phone TEXT,
                     province TEXT,
@@ -1159,6 +1187,37 @@ def init_db():
                     key TEXT PRIMARY KEY,
                     value TEXT
                 );
+                CREATE TABLE IF NOT EXISTS research_cohorts(
+                    code TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    research_title TEXT NOT NULL,
+                    subject TEXT,
+                    course_level TEXT,
+                    academic_year INTEGER,
+                    active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS bulk_enrollment_batches(
+                    id SERIAL PRIMARY KEY,
+                    cohort_code TEXT REFERENCES research_cohorts(code) ON DELETE RESTRICT,
+                    source_filename TEXT,
+                    imported_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    total_rows INTEGER NOT NULL DEFAULT 0,
+                    created_rows INTEGER NOT NULL DEFAULT 0,
+                    rejected_rows INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS bulk_enrollment_rows(
+                    id SERIAL PRIMARY KEY,
+                    batch_id INTEGER NOT NULL REFERENCES bulk_enrollment_batches(id) ON DELETE CASCADE,
+                    source_row INTEGER,
+                    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    cedula TEXT,
+                    correo TEXT,
+                    status TEXT NOT NULL,
+                    detail TEXT,
+                    created_at TEXT NOT NULL
+                );
                 CREATE INDEX IF NOT EXISTS idx_interactions_user_id ON interactions(user_id);
                 CREATE INDEX IF NOT EXISTS idx_interactions_created_at ON interactions(created_at);
                 CREATE INDEX IF NOT EXISTS idx_location_events_user_id ON location_events(user_id);
@@ -1175,6 +1234,16 @@ def init_db():
                 ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS cohort TEXT;
                 ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS full_name_normalized TEXT;
                 ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS research_group TEXT DEFAULT 'Sin asignar';
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS cedula TEXT;
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS correo TEXT;
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS estado_dato TEXT NOT NULL DEFAULT 'piloto';
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS usar_en_investigacion BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS consentimiento_informado BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS fecha_consentimiento TEXT;
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS pretest_estado TEXT NOT NULL DEFAULT 'pendiente';
+                ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS posttest_estado TEXT NOT NULL DEFAULT 'pendiente';
+                ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS password_temporal BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS primer_ingreso BOOLEAN NOT NULL DEFAULT FALSE;
                 ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS subject TEXT;
                 ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS course_level TEXT;
                 ALTER TABLE IF EXISTS analytic_plans ADD COLUMN IF NOT EXISTS parallel TEXT;
@@ -1207,10 +1276,48 @@ def init_db():
                 ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS conceptual_error TEXT;
                 ALTER TABLE IF EXISTS adaptive_questions ADD COLUMN IF NOT EXISTS estimated_confidence DOUBLE PRECISION;
                 CREATE INDEX IF NOT EXISTS idx_profiles_cohort ON profiles(cohort);
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_profiles_cedula ON profiles(cedula) WHERE cedula IS NOT NULL AND BTRIM(cedula)<>'';
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_profiles_correo_lower ON profiles(LOWER(correo)) WHERE correo IS NOT NULL AND BTRIM(correo)<>'';
+                CREATE INDEX IF NOT EXISTS idx_profiles_research_scope ON profiles(estado_dato, usar_en_investigacion, consentimiento_informado, cohort, research_group);
+                CREATE INDEX IF NOT EXISTS idx_bulk_enrollment_rows_batch ON bulk_enrollment_rows(batch_id, status);
                 CREATE INDEX IF NOT EXISTS idx_adaptive_quizzes_research ON adaptive_quizzes(quiz_type, subject, course_level, parallel, shift);
                 CREATE INDEX IF NOT EXISTS idx_research_exercise_attempts_user_id ON research_exercise_attempts(user_id);
                 CREATE INDEX IF NOT EXISTS idx_research_survey_user_id ON research_survey_responses(user_id);
                 CREATE INDEX IF NOT EXISTS idx_research_learning_events_user_id ON research_learning_events(user_id);
+                """)
+                cur.execute("""
+                INSERT INTO research_cohorts(code,name,research_title,subject,course_level,academic_year,active,created_at)
+                VALUES(%s,%s,%s,%s,%s,%s,TRUE,%s)
+                ON CONFLICT (code) DO UPDATE SET
+                    name=EXCLUDED.name,
+                    research_title=EXCLUDED.research_title,
+                    subject=EXCLUDED.subject,
+                    course_level=EXCLUDED.course_level,
+                    academic_year=EXCLUDED.academic_year,
+                    active=TRUE
+                """, (
+                    OFFICIAL_COHORT_CODE,
+                    "Cohorte oficial Cálculo I 2026",
+                    RESEARCH_TITLE,
+                    "Cálculo I",
+                    "1",
+                    2026,
+                    now(),
+                ))
+                cur.execute("""
+                UPDATE profiles
+                SET estado_dato='piloto', usar_en_investigacion=FALSE
+                WHERE estado_dato IS NULL OR BTRIM(estado_dato)='';
+                UPDATE profiles p SET pretest_estado='completado'
+                WHERE EXISTS (
+                    SELECT 1 FROM adaptive_quizzes aq
+                    WHERE aq.user_id=p.user_id AND aq.quiz_type='pretest' AND aq.status='completed'
+                );
+                UPDATE profiles p SET posttest_estado='completado'
+                WHERE EXISTS (
+                    SELECT 1 FROM adaptive_quizzes aq
+                    WHERE aq.user_id=p.user_id AND aq.quiz_type='posttest' AND aq.status='completed'
+                );
                 """)
                 cur.execute("INSERT INTO settings(key,value) VALUES('session_timeout_minutes', %s) ON CONFLICT (key) DO NOTHING", (str(SESSION_TIMEOUT_MINUTES),))
                 cur.execute("SELECT id FROM users WHERE username=%s", (ADMIN_USER,))
@@ -1307,14 +1414,15 @@ def academic_context_from_profile(prof):
     course_level = normalize_course_level((prof or {}).get("course_level") or parsed.get("course_level") or ACADEMIC_COURSE_LEVELS[0])
     parallel = normalize_parallel((prof or {}).get("parallel") or parsed.get("parallel") or ACADEMIC_PARALLELS[0])
     shift = normalize_shift((prof or {}).get("shift") or parsed.get("shift") or ACADEMIC_SHIFTS[0])
-    cohort = build_course_label(course_level, parallel, shift)
+    course_label = build_course_label(course_level, parallel, shift)
+    cohort = normalize_spaces((prof or {}).get("cohort")) or course_label
     return {
         "subject": subject,
         "course_level": course_level,
         "parallel": parallel,
         "shift": shift,
         "cohort": cohort,
-        "course": cohort,
+        "course": course_label,
     }
 
 
@@ -1371,6 +1479,10 @@ def get_profile(uid):
     return fetchone("SELECT * FROM profiles WHERE user_id=%s", (uid,)) or {}
 
 
+def get_user(uid):
+    return fetchone("SELECT * FROM users WHERE id=%s", (uid,)) or {}
+
+
 def update_profile(uid, data):
     if not data:
         return
@@ -1378,6 +1490,189 @@ def update_profile(uid, data):
     vals = list(data.values()) + [uid]
     with DB_LOCK:
         execute(f"UPDATE profiles SET {cols} WHERE user_id=%s", vals)
+
+
+def update_user(uid, data):
+    if not data:
+        return
+    allowed = {"password_hash", "password_temporal", "primer_ingreso", "active", "last_login"}
+    clean = {key: value for key, value in data.items() if key in allowed}
+    if not clean:
+        return
+    cols = ",".join([f"{key}=%s" for key in clean])
+    vals = list(clean.values()) + [uid]
+    with DB_LOCK:
+        execute(f"UPDATE users SET {cols} WHERE id=%s", vals)
+
+
+def is_official_profile(prof):
+    return str((prof or {}).get("estado_dato") or "piloto").strip().lower() == "oficial"
+
+
+def official_profile_ready(user, prof):
+    if not is_official_profile(prof):
+        return True
+    return bool(
+        prof.get("consentimiento_informado")
+        and prof.get("profile_completed")
+        and not user.get("password_temporal")
+        and not user.get("primer_ingreso")
+    )
+
+
+def set_research_assessment_state(uid, quiz_type, status):
+    field = {"pretest": "pretest_estado", "posttest": "posttest_estado"}.get(str(quiz_type or "").lower())
+    if field:
+        update_profile(uid, {field: status})
+
+
+def read_enrollment_upload(uploaded_file):
+    content = uploaded_file.getvalue()
+    filename = str(uploaded_file.name or "").lower()
+    if filename.endswith(".xlsx"):
+        return pd.read_excel(BytesIO(content), sheet_name=0, dtype=str).fillna("")
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+    return pd.read_csv(StringIO(text), dtype=str, sep=None, engine="python").fillna("")
+
+
+def validate_enrollment_against_database(normalized_df):
+    checked = normalized_df.copy()
+    if checked.empty:
+        return checked, pd.DataFrame(columns=["fila", "campo", "error"])
+    existing = fetchall("""
+        SELECT u.username, p.cedula, p.correo
+        FROM users u
+        LEFT JOIN profiles p ON p.user_id=u.id
+    """)
+    existing_cedulas = {str(row.get("cedula") or "").strip() for row in existing if str(row.get("cedula") or "").strip()}
+    existing_emails = {str(row.get("correo") or "").strip().lower() for row in existing if str(row.get("correo") or "").strip()}
+    existing_usernames = {str(row.get("username") or "").strip().lower() for row in existing}
+    issues = []
+    for index, row in checked.iterrows():
+        row_issues = []
+        cedula = str(row.get("cedula") or "").strip()
+        correo = str(row.get("correo") or "").strip().lower()
+        if cedula in existing_cedulas:
+            row_issues.append(("cedula", "La cédula ya está registrada en BunsekiChat."))
+        if correo in existing_emails:
+            row_issues.append(("correo", "El correo ya está registrado en BunsekiChat."))
+        if cedula.lower() in existing_usernames:
+            row_issues.append(("cedula", "La cédula coincide con un nombre de usuario existente."))
+        for field, message in row_issues:
+            issues.append({"fila": int(row.get("fila_origen") or 0), "campo": field, "error": message})
+            checked.at[index, "errores"] = " | ".join(filter(None, [str(checked.at[index, "errores"] or ""), message]))
+    checked["valido"] = checked["errores"].astype(str).eq("")
+    return checked, pd.DataFrame(issues, columns=["fila", "campo", "error"])
+
+
+def import_bulk_enrollment(normalized_df, admin_id, source_filename):
+    checked, database_issues = validate_enrollment_against_database(normalized_df)
+    credentials = []
+    rejected = []
+    created = 0
+    c = conn()
+    c.autocommit = False
+    try:
+        with c.cursor() as cur:
+            cur.execute("""
+                INSERT INTO bulk_enrollment_batches(
+                    cohort_code, source_filename, imported_by, total_rows, created_rows, rejected_rows, created_at
+                ) VALUES(%s,%s,%s,%s,0,0,%s) RETURNING id
+            """, (OFFICIAL_COHORT_CODE, source_filename, admin_id, len(checked), now()))
+            batch_id = int(cur.fetchone()["id"])
+            for index, row in checked.iterrows():
+                source_row = int(row.get("fila_origen") or index + 2)
+                if not bool(row.get("valido")):
+                    detail = str(row.get("errores") or "Fila no válida.")
+                    rejected.append({"fila": source_row, "cedula": row.get("cedula"), "correo": row.get("correo"), "error": detail})
+                    cur.execute("""
+                        INSERT INTO bulk_enrollment_rows(batch_id,source_row,cedula,correo,status,detail,created_at)
+                        VALUES(%s,%s,%s,%s,'rechazado',%s,%s)
+                    """, (batch_id, source_row, row.get("cedula"), row.get("correo"), detail, now()))
+                    continue
+
+                cur.execute(f"SAVEPOINT enrollment_row_{index}")
+                try:
+                    temporary_password = generate_temporary_password()
+                    username = str(row["cedula"]).strip()
+                    cur.execute("""
+                        INSERT INTO users(
+                            username,password_hash,role,active,created_at,password_temporal,primer_ingreso
+                        ) VALUES(%s,%s,'student',TRUE,%s,TRUE,TRUE) RETURNING id
+                    """, (username, hash_password(temporary_password), now()))
+                    user_id = int(cur.fetchone()["id"])
+                    course_label = build_course_label(row.get("curso"), row.get("paralelo"), row.get("jornada"))
+                    full_name = normalize_spaces(f"{row.get('nombres')} {row.get('apellidos')}")
+                    cur.execute("""
+                        INSERT INTO profiles(
+                            user_id,cedula,first_names,last_names,correo,subject,course_level,parallel,shift,
+                            course,cohort,full_name_normalized,research_group,estado_dato,usar_en_investigacion,
+                            consentimiento_informado,pretest_estado,posttest_estado,profile_completed,level
+                        ) VALUES(
+                            %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'oficial',FALSE,FALSE,
+                            'pendiente','pendiente',0,'Inicial'
+                        )
+                    """, (
+                        user_id, row.get("cedula"), row.get("nombres"), row.get("apellidos"), row.get("correo"),
+                        row.get("materia"), row.get("curso"), row.get("paralelo"), row.get("jornada"),
+                        course_label, row.get("cohorte") or OFFICIAL_COHORT_CODE, full_name,
+                        row.get("grupo_investigacion"),
+                    ))
+                    detail = "Creado; pendiente primer ingreso, cambio de contraseña y consentimiento."
+                    cur.execute("""
+                        INSERT INTO bulk_enrollment_rows(batch_id,source_row,user_id,cedula,correo,status,detail,created_at)
+                        VALUES(%s,%s,%s,%s,%s,'creado',%s,%s)
+                    """, (batch_id, source_row, user_id, row.get("cedula"), row.get("correo"), detail, now()))
+                    cur.execute(f"RELEASE SAVEPOINT enrollment_row_{index}")
+                    created += 1
+                    credentials.append({
+                        "cedula": row.get("cedula"),
+                        "usuario": username,
+                        "contrasena_temporal": temporary_password,
+                        "nombres": row.get("nombres"),
+                        "apellidos": row.get("apellidos"),
+                        "correo": row.get("correo"),
+                        "cohorte": row.get("cohorte") or OFFICIAL_COHORT_CODE,
+                        "grupo_investigacion": row.get("grupo_investigacion"),
+                    })
+                except Exception as row_error:
+                    cur.execute(f"ROLLBACK TO SAVEPOINT enrollment_row_{index}")
+                    cur.execute(f"RELEASE SAVEPOINT enrollment_row_{index}")
+                    detail = f"No creado: {str(row_error)[:350]}"
+                    rejected.append({"fila": source_row, "cedula": row.get("cedula"), "correo": row.get("correo"), "error": detail})
+                    cur.execute("""
+                        INSERT INTO bulk_enrollment_rows(batch_id,source_row,cedula,correo,status,detail,created_at)
+                        VALUES(%s,%s,%s,%s,'rechazado',%s,%s)
+                    """, (batch_id, source_row, row.get("cedula"), row.get("correo"), detail, now()))
+            cur.execute("""
+                UPDATE bulk_enrollment_batches SET created_rows=%s,rejected_rows=%s WHERE id=%s
+            """, (created, len(checked) - created, batch_id))
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    finally:
+        c.close()
+    return {
+        "batch_id": batch_id,
+        "created": created,
+        "rejected": len(checked) - created,
+        "credentials": pd.DataFrame(credentials),
+        "errors": pd.DataFrame(rejected),
+        "database_issues": database_issues,
+    }
+
+
+def get_recent_enrollment_batches(limit=20):
+    return fetchall("""
+        SELECT beb.*, u.username AS imported_by_username
+        FROM bulk_enrollment_batches beb
+        LEFT JOIN users u ON u.id=beb.imported_by
+        ORDER BY beb.id DESC LIMIT %s
+    """, (int(limit),))
 
 
 def normalize_gps_payload(raw):
@@ -1456,6 +1751,20 @@ def log_research_learning_event(uid, event_type, quiz_id=None, duration_seconds=
         INSERT INTO research_learning_events(user_id, quiz_id, event_type, duration_seconds, metadata_json, created_at)
         VALUES(%s,%s,%s,%s,%s,%s)
     """, (uid, quiz_id, event_type, duration_seconds, json.dumps(metadata or {}, ensure_ascii=False), now()))
+
+
+def research_learning_event_exists(uid, event_type, quiz_id=None):
+    if quiz_id is None:
+        row = fetchone(
+            "SELECT 1 AS found FROM research_learning_events WHERE user_id=%s AND event_type=%s LIMIT 1",
+            (uid, event_type),
+        )
+    else:
+        row = fetchone(
+            "SELECT 1 AS found FROM research_learning_events WHERE user_id=%s AND event_type=%s AND quiz_id=%s LIMIT 1",
+            (uid, event_type, quiz_id),
+        )
+    return bool(row)
 
 
 def interactions(uid=None):
@@ -1737,7 +2046,9 @@ def get_teacher_tables():
     users_rows = fetchall("""
         SELECT u.id,u.username,u.role,u.active,u.created_at,u.last_login,
                p.first_names,p.last_names,p.course,p.subject,p.course_level,p.parallel,p.shift,p.cohort,p.full_name_normalized,
-               p.teacher,p.province,p.city,p.level
+               p.teacher,p.province,p.city,p.level,p.cedula,p.correo,p.research_group,p.estado_dato,
+               p.usar_en_investigacion,p.consentimiento_informado,p.fecha_consentimiento,p.pretest_estado,p.posttest_estado,
+               u.password_temporal,u.primer_ingreso
         FROM users u LEFT JOIN profiles p ON p.user_id=u.id
         ORDER BY u.id DESC
     """)
@@ -1757,7 +2068,7 @@ def get_teacher_tables():
         LEFT JOIN profiles p ON p.user_id=q.user_id
         ORDER BY q.id DESC
     """)
-    users = _rows_to_df(users_rows, ["id","username","role","active","created_at","last_login","first_names","last_names","course","subject","course_level","parallel","shift","cohort","full_name_normalized","teacher","province","city","level"])
+    users = _rows_to_df(users_rows, ["id","username","role","active","created_at","last_login","first_names","last_names","course","subject","course_level","parallel","shift","cohort","full_name_normalized","teacher","province","city","level","cedula","correo","research_group","estado_dato","usar_en_investigacion","consentimiento_informado","fecha_consentimiento","pretest_estado","posttest_estado","password_temporal","primer_ingreso"])
     logs = _rows_to_df(logs_rows, ["id","user_id","role","topic","subtopic","level","message","clean_message","model","tokens_est","latency_ms","created_at","username","first_names","last_names","course","subject","course_level","parallel","shift","cohort","teacher","profile_level","gps_lat","gps_lon","gps_accuracy","gps_source"])
     quizzes = _rows_to_df(quizzes_rows, ["id","user_id","topic","level_from","level_to","score","passed","answers_json","created_at","username","first_names","last_names","course","subject","course_level","parallel","shift","cohort","teacher","profile_level"])
     return users, logs, quizzes
@@ -1767,7 +2078,8 @@ def build_student_summary(uid: int):
     profile = fetchone("""
         SELECT u.id,u.username,u.role,u.active,u.created_at,u.last_login,
                p.first_names,p.last_names,p.course,p.subject,p.course_level,p.parallel,p.shift,p.cohort,p.full_name_normalized,
-               p.teacher,p.phone,p.province,p.city,p.canton,p.address,p.level
+               p.teacher,p.phone,p.province,p.city,p.canton,p.address,p.level,p.cedula,p.correo,p.research_group,
+               p.estado_dato,p.usar_en_investigacion,p.consentimiento_informado,p.pretest_estado,p.posttest_estado
         FROM users u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.id=%s
     """, (uid,)) or {"id": uid, "username": f"usuario_{uid}"}
 
@@ -2477,6 +2789,8 @@ def create_adaptive_quiz(uid, plan_id=None, difficulty="Intermedio", n_questions
             q.get("dimension",""), q.get("indicator",""), q.get("competence",""),
             q.get("difficulty_level",""), q.get("explanation",""), q.get("bloom_level","Aplicar")
         ))
+    if is_research_quiz(quiz_type):
+        set_research_assessment_state(uid, quiz_type, "iniciado")
     return quiz_id
 
 
@@ -2504,10 +2818,13 @@ def quiz_matches_research_focus(quiz):
     return focus in source
 
 
-def delete_adaptive_quiz(quiz_id):
+def supersede_adaptive_quiz(quiz_id):
     with DB_LOCK:
-        execute("DELETE FROM adaptive_questions WHERE quiz_id=%s", (quiz_id,))
-        execute("DELETE FROM adaptive_quizzes WHERE id=%s", (quiz_id,))
+        execute("""
+            UPDATE adaptive_quizzes
+            SET status='superseded', recommendation=%s
+            WHERE id=%s AND status<>'completed'
+        """, ("Instrumento archivado al regenerarse por actualización del tema; se conserva para auditoría.", quiz_id))
 
 
 def grade_adaptive_quiz(quiz_id, answers: dict, elapsed_seconds=None):
@@ -2557,6 +2874,8 @@ def grade_adaptive_quiz(quiz_id, answers: dict, elapsed_seconds=None):
         float(elapsed_seconds or 0) if elapsed_seconds else None,
         quiz_id,
     ))
+    if quiz and is_research_quiz(quiz.get("quiz_type")):
+        set_research_assessment_state(quiz.get("user_id"), quiz.get("quiz_type"), "completado")
     return score, passed, weak_topics, recommendation
 
 
@@ -2847,9 +3166,25 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
     </div>
     """, unsafe_allow_html=True)
 
+    official_student = is_official_profile(prof)
+    if official_student and (not prof.get("consentimiento_informado") or not prof.get("usar_en_investigacion")):
+        st.error("Debes completar el consentimiento informado antes de acceder a los instrumentos oficiales.")
+        return
+    if official_student and str(prof.get("research_group") or "").strip().lower() not in {"experimental", "control"}:
+        st.error("El docente debe asignarte al grupo Experimental o Control antes de iniciar el pretest.")
+        return
+
+    if official_student and str(prof.get("pretest_estado") or "pendiente").lower() != "completado":
+        mode_options = ["Pretest"]
+    elif official_student:
+        mode_options = ["Pretest", "Posttest"]
+    else:
+        mode_options = ["Evaluación adaptativa", "Pretest", "Posttest"]
+    if st.session_state.get("assessment_mode") not in mode_options:
+        st.session_state["assessment_mode"] = mode_options[0]
     mode_label = st.radio(
         "Tipo de evaluación",
-        ["Evaluación adaptativa", "Pretest", "Posttest"],
+        mode_options,
         horizontal=True,
         key="assessment_mode",
     )
@@ -2909,7 +3244,7 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
         if st.button(f"Regenerar {quiz_type_label(quiz_type)} con {RESEARCH_FOCUS_TOPIC}", use_container_width=True):
             try:
                 with st.spinner(f"Regenerando {quiz_type_label(quiz_type).lower()}..."):
-                    delete_adaptive_quiz(last_quiz["id"])
+                    supersede_adaptive_quiz(last_quiz["id"])
                     st.session_state.pop(current_key, None)
                     quiz_id = create_adaptive_quiz(user["id"], plan_id, difficulty, n_questions, quiz_type=quiz_type, academic_context=academic_context)
                 st.session_state[current_key] = quiz_id
@@ -2928,6 +3263,17 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
         else:
             render_research_lesson_panel(user, academic_context, completed_pretest)
             render_guided_exercises_panel(user, academic_context, completed_pretest)
+            if official_student:
+                lesson_ready = research_learning_event_exists(user["id"], "class_generated", completed_pretest["id"])
+                exercises_ready = research_learning_event_exists(user["id"], "guided_exercises_completed", completed_pretest["id"])
+                if not lesson_ready or not exercises_ready:
+                    pending_steps = []
+                    if not lesson_ready:
+                        pending_steps.append("generar y estudiar la clase IA")
+                    if not exercises_ready:
+                        pending_steps.append("completar los ejercicios guiados")
+                    st.warning("Antes del posttest debes " + " y ".join(pending_steps) + ".")
+                    return
 
     col1, col2 = st.columns(2)
     can_generate = not (research_mode and last_quiz)
@@ -3059,7 +3405,16 @@ def render_student_sidebar(prof):
     sidebar_brand("Estudiante", "Tutor matemático universitario")
     st.sidebar.markdown("<div class='saas-section-title'>Navegación</div>", unsafe_allow_html=True)
     is_control_group = str(prof.get("research_group") or "").strip().lower() == "control"
-    student_pages = ["🧠 Evaluación IA", "📈 Mi progreso"] if is_control_group else ["💬 Tutor", "🧠 Evaluación IA", "📘 Descargar aprendizaje", "🎮 Prueba de nivel", "📈 Mi progreso"]
+    official_student = is_official_profile(prof)
+    pretest_completed = str(prof.get("pretest_estado") or "pendiente").strip().lower() == "completado"
+    if official_student and not pretest_completed:
+        student_pages = ["🧠 Evaluación IA"]
+    elif official_student and is_control_group:
+        student_pages = ["🧠 Evaluación IA", "📈 Mi progreso"]
+    else:
+        student_pages = ["💬 Tutor", "🧠 Evaluación IA", "📘 Descargar aprendizaje", "🎮 Prueba de nivel", "📈 Mi progreso"]
+    if st.session_state.get("student_nav") not in student_pages:
+        st.session_state["student_nav"] = student_pages[0]
     page = st.sidebar.radio(
         "Menú del estudiante",
         student_pages,
@@ -3086,7 +3441,7 @@ def render_teacher_sidebar():
     st.sidebar.markdown("<div class='saas-section-title'>Navegación</div>", unsafe_allow_html=True)
     page = st.sidebar.radio(
         "Menú docente",
-        ["📊 Dashboard docente PRO", "📚 Planes analíticos", "🧪 Investigación pre/post", "📥 Exportación", "👤 Seguimiento individual", "🧾 Datos completos", "⚙️ Configuración"],
+        ["📊 Dashboard docente PRO", "👥 Matrícula masiva", "📚 Planes analíticos", "🧪 Investigación pre/post", "📥 Exportación", "👤 Seguimiento individual", "🧾 Datos completos", "⚙️ Configuración"],
         label_visibility="collapsed",
         key="teacher_nav"
     )
@@ -3163,6 +3518,129 @@ def login_page():
 
     st.markdown("</div>", unsafe_allow_html=True)
 
+
+def render_official_first_login(user, prof):
+    sidebar_brand("Estudiante oficial", "Activación de cuenta")
+    if st.sidebar.button("Cerrar sesión", key="official_onboarding_logout"):
+        st.session_state.clear()
+        st.rerun()
+
+    st.markdown(
+        "<div class='hero'>" + bunseki_logo_html(
+            "Activación de cuenta oficial",
+            "Confirma tus datos, acepta el consentimiento y protege tu cuenta antes del pretest",
+        ) + "</div>",
+        unsafe_allow_html=True,
+    )
+    st.info(
+        f"Cohorte: {prof.get('cohort') or OFFICIAL_COHORT_CODE} · "
+        f"Grupo: {prof.get('research_group') or 'Sin asignar'} · "
+        "Tus resultados no ingresarán al análisis hasta completar este proceso."
+    )
+
+    with st.form("official_first_login_form"):
+        st.markdown("### 1. Confirma tus datos")
+        c1, c2 = st.columns(2)
+        with c1:
+            cedula = st.text_input("Cédula / usuario", value=str(prof.get("cedula") or user.get("username") or ""), disabled=True)
+            first_names = st.text_input("Nombres", value=str(prof.get("first_names") or ""))
+            last_names = st.text_input("Apellidos", value=str(prof.get("last_names") or ""))
+            correo = st.text_input("Correo", value=str(prof.get("correo") or ""))
+        with c2:
+            subject = st.text_input("Materia", value=str(prof.get("subject") or "Cálculo I"))
+            course_level = st.text_input("Curso / nivel", value=str(prof.get("course_level") or "1"))
+            parallel = st.text_input("Paralelo", value=str(prof.get("parallel") or ""))
+            shift = st.selectbox(
+                "Jornada",
+                ACADEMIC_SHIFTS,
+                index=ACADEMIC_SHIFTS.index(normalize_shift(prof.get("shift"))) if normalize_shift(prof.get("shift")) in ACADEMIC_SHIFTS else 0,
+            )
+            st.text_input("Cohorte de investigación", value=str(prof.get("cohort") or OFFICIAL_COHORT_CODE), disabled=True)
+            st.text_input("Grupo de investigación", value=str(prof.get("research_group") or "Sin asignar"), disabled=True)
+        st.caption("La cédula, cohorte y grupo son controlados por el docente. Si alguno es incorrecto, no continúes y comunícalo al responsable de la investigación.")
+
+        st.markdown("### 2. Consentimiento informado")
+        st.markdown(INFORMED_CONSENT_TEXT)
+        consent = st.checkbox(
+            "He leído la información y acepto voluntariamente participar en esta investigación.",
+            value=False,
+        )
+
+        st.markdown("### 3. Cambia la contraseña temporal")
+        p1, p2 = st.columns(2)
+        new_password = p1.text_input("Nueva contraseña", type="password", help="Mínimo 8 caracteres, con letras, número y símbolo.")
+        confirm_password = p2.text_input("Confirmar nueva contraseña", type="password")
+        submitted = st.form_submit_button("Confirmar datos y activar cuenta", use_container_width=True)
+
+    if not submitted:
+        return
+
+    clean_names = normalize_person_name(first_names)
+    clean_surnames = normalize_person_name(last_names)
+    clean_email = str(correo or "").strip().lower()
+    errors = []
+    if not clean_names or not clean_surnames:
+        errors.append("Completa nombres y apellidos oficiales.")
+    if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", clean_email):
+        errors.append("Ingresa un correo válido.")
+    duplicate_email = fetchone(
+        "SELECT user_id FROM profiles WHERE LOWER(COALESCE(correo,''))=%s AND user_id<>%s LIMIT 1",
+        (clean_email, user["id"]),
+    )
+    if duplicate_email:
+        errors.append("El correo ya pertenece a otro estudiante.")
+    if not subject.strip() or not course_level.strip() or not parallel.strip() or not shift:
+        errors.append("Completa materia, curso, paralelo y jornada.")
+    if not consent:
+        errors.append("Debes aceptar el consentimiento para participar y acceder al pretest oficial.")
+    if len(new_password) < 8 or not re.search(r"[A-Za-z]", new_password) or not re.search(r"\d", new_password) or not re.search(r"[^A-Za-z0-9]", new_password):
+        errors.append("La nueva contraseña debe tener al menos 8 caracteres, letras, número y símbolo.")
+    if new_password != confirm_password:
+        errors.append("Las contraseñas no coinciden.")
+    if new_password and verify_password(new_password, user.get("password_hash") or ""):
+        errors.append("La nueva contraseña debe ser diferente de la temporal.")
+    if errors:
+        for error in errors:
+            st.error(error)
+        return
+
+    clean_subject = normalize_academic_text(subject)
+    clean_course = normalize_course_level(course_level)
+    clean_parallel = normalize_parallel(parallel)
+    clean_shift = normalize_shift(shift)
+    course_label = build_course_label(clean_course, clean_parallel, clean_shift)
+    consent_date = now()
+    c = conn()
+    c.autocommit = False
+    try:
+        with c.cursor() as cur:
+            cur.execute("""
+                UPDATE profiles SET
+                    first_names=%s,last_names=%s,correo=%s,subject=%s,course_level=%s,parallel=%s,shift=%s,
+                    course=%s,full_name_normalized=%s,profile_completed=1,consentimiento_informado=TRUE,
+                    fecha_consentimiento=%s,usar_en_investigacion=TRUE,pretest_estado=COALESCE(NULLIF(pretest_estado,''),'pendiente'),
+                    posttest_estado=COALESCE(NULLIF(posttest_estado,''),'pendiente')
+                WHERE user_id=%s
+            """, (
+                clean_names, clean_surnames, clean_email, clean_subject, clean_course, clean_parallel, clean_shift,
+                course_label, normalize_spaces(f"{clean_names} {clean_surnames}"), consent_date, user["id"],
+            ))
+            cur.execute("""
+                UPDATE users SET password_hash=%s,password_temporal=FALSE,primer_ingreso=FALSE WHERE id=%s
+            """, (hash_password(new_password), user["id"]))
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    finally:
+        c.close()
+
+    st.session_state.user = get_user(user["id"])
+    st.session_state["student_nav"] = "🧠 Evaluación IA"
+    st.session_state["assessment_mode"] = "Pretest"
+    st.success("Cuenta activada. Serás dirigido al pretest oficial.")
+    st.rerun()
+
 def profile_page(user):
     prof=get_profile(user['id'])
     academic_defaults = academic_context_from_profile(prof)
@@ -3216,6 +3694,8 @@ def profile_page(user):
 
 def student_page(user):
     prof=get_profile(user['id'])
+    if is_official_profile(prof) and not official_profile_ready(user, prof):
+        return render_official_first_login(user, prof)
     if not prof.get('profile_completed'): return profile_page(user)
     academic_context = academic_context_from_profile(prof)
     hero_html = (
@@ -3480,6 +3960,10 @@ def get_research_results():
             aq.created_at, aq.completed_at, aq.research_title, aq.random_seed,
             u.username,
             p.first_names, p.last_names, p.full_name_normalized,
+            p.cedula, p.correo, COALESCE(NULLIF(p.estado_dato,''), 'piloto') AS estado_dato,
+            COALESCE(p.usar_en_investigacion,FALSE) AS usar_en_investigacion,
+            COALESCE(p.consentimiento_informado,FALSE) AS consentimiento_informado,
+            p.fecha_consentimiento, p.pretest_estado, p.posttest_estado,
             COALESCE(NULLIF(p.research_group,''), 'Sin asignar') AS research_group,
             COALESCE(aq.subject, p.subject) AS profile_subject,
             COALESCE(aq.course_level, p.course_level) AS profile_course_level,
@@ -3498,7 +3982,12 @@ def get_research_students():
     return fetchall("""
         SELECT u.id AS user_id, u.username, p.first_names, p.last_names,
                p.full_name_normalized, p.subject, p.course_level, p.parallel,
-               p.shift, p.cohort, COALESCE(NULLIF(p.research_group,''), 'Sin asignar') AS research_group
+               p.shift, p.cohort, p.course, p.cedula, p.correo,
+               COALESCE(NULLIF(p.estado_dato,''), 'piloto') AS estado_dato,
+               COALESCE(p.usar_en_investigacion,FALSE) AS usar_en_investigacion,
+               COALESCE(p.consentimiento_informado,FALSE) AS consentimiento_informado,
+               p.fecha_consentimiento,p.pretest_estado,p.posttest_estado,
+               COALESCE(NULLIF(p.research_group,''), 'Sin asignar') AS research_group
         FROM users u
         JOIN profiles p ON p.user_id=u.id
         WHERE LOWER(COALESCE(u.role,'student'))='student'
@@ -3513,7 +4002,7 @@ def get_research_item_responses():
                COALESCE(NULLIF(p.research_group,''), 'Sin asignar') AS research_group,
                COALESCE(NULLIF(q.item_code,''), 'LEGACY-' || q.id::text) AS item_code,
                q.question, q.position, q.dimension, q.difficulty_level, q.bloom_level,
-               q.is_correct, q.response_time_seconds, q.conceptual_error
+               q.user_answer, q.is_correct, q.response_time_seconds, q.conceptual_error
         FROM adaptive_questions q
         JOIN adaptive_quizzes aq ON aq.id=q.quiz_id
         LEFT JOIN profiles p ON p.user_id=aq.user_id
@@ -3544,6 +4033,19 @@ def get_research_interactions():
     """)
 
 
+def get_research_session_events():
+    return fetchall("""
+        SELECT le.id, le.user_id, le.event_type, le.page, le.created_at
+        FROM location_events le
+        WHERE le.event_type='app_open'
+          AND EXISTS (
+              SELECT 1 FROM adaptive_quizzes aq
+              WHERE aq.user_id=le.user_id AND COALESCE(aq.quiz_type,'adaptive') IN ('pretest','posttest')
+          )
+        ORDER BY le.user_id, le.created_at, le.id
+    """)
+
+
 def get_research_exercise_attempts():
     return fetchall("""
         SELECT rea.*, u.username, p.first_names, p.last_names, p.cohort
@@ -3562,6 +4064,146 @@ def get_research_survey_responses():
         LEFT JOIN profiles p ON p.user_id=rsr.user_id
         ORDER BY rsr.id DESC
     """)
+
+
+def build_research_export_bundle(student_df, result_df, item_df, event_df, interaction_df, exercise_df, session_df=None):
+    students = student_df.copy() if student_df is not None else pd.DataFrame()
+    results = result_df.copy() if result_df is not None else pd.DataFrame()
+    items = item_df.copy() if item_df is not None else pd.DataFrame()
+    events = event_df.copy() if event_df is not None else pd.DataFrame()
+    interactions_df = interaction_df.copy() if interaction_df is not None else pd.DataFrame()
+    exercises = exercise_df.copy() if exercise_df is not None else pd.DataFrame()
+    sessions = session_df.copy() if session_df is not None else pd.DataFrame()
+    if students.empty:
+        empty = pd.DataFrame()
+        return {"summary": empty, "items": empty, "events": empty, "exercises": empty}
+
+    for frame, columns in [
+        (results, ["user_id", "score", "total_time_seconds"]),
+        (items, ["user_id", "response_time_seconds"]),
+        (events, ["user_id", "duration_seconds"]),
+        (interactions_df, ["user_id"]),
+        (exercises, ["user_id"]),
+        (sessions, ["user_id"]),
+    ]:
+        for column in columns:
+            if column in frame.columns:
+                frame[column] = pd.to_numeric(frame[column], errors="coerce")
+
+    completed = results.copy()
+    if not completed.empty:
+        completed = completed[completed.get("status", "").astype(str).eq("completed")]
+        completed = completed.sort_values([column for column in ["user_id", "quiz_type", "id"] if column in completed.columns])
+
+    def latest_quiz(user_results, quiz_type):
+        if user_results.empty or "quiz_type" not in user_results.columns:
+            return {}
+        subset = user_results[user_results["quiz_type"].astype(str).eq(quiz_type)]
+        return subset.iloc[-1].to_dict() if not subset.empty else {}
+
+    def frame_for_user(frame, user_id):
+        if frame.empty or "user_id" not in frame.columns:
+            return frame.iloc[0:0].copy()
+        return frame[pd.to_numeric(frame["user_id"], errors="coerce").eq(int(user_id))].copy()
+
+    summary_rows = []
+    students = students.sort_values([column for column in ["last_names", "first_names", "user_id"] if column in students.columns])
+    for _, student in students.drop_duplicates("user_id", keep="last").iterrows():
+        user_id = int(student["user_id"])
+        user_results = frame_for_user(completed, user_id)
+        user_items = frame_for_user(items, user_id)
+        user_events = frame_for_user(events, user_id)
+        user_interactions = frame_for_user(interactions_df, user_id)
+        user_exercises = frame_for_user(exercises, user_id)
+        user_sessions = frame_for_user(sessions, user_id)
+        pretest = latest_quiz(user_results, "pretest")
+        posttest = latest_quiz(user_results, "posttest")
+        pre_score = pd.to_numeric(pretest.get("score"), errors="coerce")
+        post_score = pd.to_numeric(posttest.get("score"), errors="coerce")
+        gain = post_score - pre_score if pd.notna(pre_score) and pd.notna(post_score) else None
+
+        session_dates = set()
+        for frame in [user_results, user_events, user_interactions, user_exercises]:
+            if "created_at" in frame.columns:
+                session_dates.update(str(value)[:10] for value in frame["created_at"].dropna() if str(value).strip())
+        answered = user_items[user_items.get("user_answer", pd.Series(index=user_items.index, dtype=str)).fillna("").astype(str).str.strip().ne("")]
+        correct_count = int(answered.get("is_correct", pd.Series(index=answered.index, dtype=bool)).fillna(False).astype(bool).sum())
+        feedback_count = int(user_exercises.get("feedback", pd.Series(index=user_exercises.index, dtype=str)).fillna("").astype(str).str.strip().ne("").sum())
+        bloom_counts = answered.get("bloom_level", pd.Series(dtype=str)).fillna("Sin clasificar").astype(str).value_counts().to_dict()
+        difficulty_counts = answered.get("difficulty_level", pd.Series(dtype=str)).fillna("Sin clasificar").astype(str).value_counts().to_dict()
+        quiz_seconds = pd.to_numeric(user_results.get("total_time_seconds", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
+        event_seconds = pd.to_numeric(user_events.get("duration_seconds", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
+        dates = [value for value in [pretest.get("completed_at"), posttest.get("completed_at")] if value]
+        summary_rows.append({
+            "user_id": user_id,
+            "cedula": student.get("cedula"),
+            "nombres": student.get("first_names"),
+            "apellidos": student.get("last_names"),
+            "correo": student.get("correo"),
+            "materia": student.get("subject"),
+            "curso": student.get("course_level"),
+            "paralelo": student.get("parallel"),
+            "jornada": student.get("shift"),
+            "grupo_investigacion": student.get("research_group"),
+            "cohorte": student.get("cohort"),
+            "estado_dato": student.get("estado_dato"),
+            "usar_en_investigacion": student.get("usar_en_investigacion"),
+            "consentimiento_informado": student.get("consentimiento_informado"),
+            "fecha_consentimiento": student.get("fecha_consentimiento"),
+            "pretest_estado": student.get("pretest_estado"),
+            "posttest_estado": student.get("posttest_estado"),
+            "pretest": None if pd.isna(pre_score) else float(pre_score),
+            "posttest": None if pd.isna(post_score) else float(post_score),
+            "ganancia_aprendizaje": None if gain is None or pd.isna(gain) else float(gain),
+            "tiempo_uso_segundos": float(quiz_seconds + event_seconds),
+            "numero_sesiones": len(user_sessions) if not user_sessions.empty else len(session_dates),
+            "preguntas_respondidas": len(answered),
+            "aciertos": correct_count,
+            "errores": int(len(answered) - correct_count),
+            "nivel_bloom": json.dumps(bloom_counts, ensure_ascii=False),
+            "dificultad": json.dumps(difficulty_counts, ensure_ascii=False),
+            "uso_retroalimentacion": feedback_count,
+            "fecha_pretest": pretest.get("completed_at"),
+            "fecha_posttest": posttest.get("completed_at"),
+            "fecha_aplicacion": max(dates) if dates else None,
+        })
+
+    summary = pd.DataFrame(summary_rows)
+    identity_columns = ["user_id", "cedula", "first_names", "last_names", "cohort", "research_group", "estado_dato"]
+    identity = students[[column for column in identity_columns if column in students.columns]].drop_duplicates("user_id")
+
+    def attach_identity(frame):
+        if frame.empty or "user_id" not in frame.columns:
+            return frame
+        clean = frame.drop(columns=[column for column in identity.columns if column != "user_id" and column in frame.columns], errors="ignore")
+        return clean.merge(identity, on="user_id", how="left")
+
+    return {
+        "summary": summary,
+        "items": attach_identity(items),
+        "events": attach_identity(events),
+        "exercises": attach_identity(exercises),
+        "sessions": attach_identity(sessions),
+    }
+
+
+def research_export_excel(bundle):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        sheet_map = {
+            "summary": "Resumen_estudiantes",
+            "items": "Respuestas_items",
+            "events": "Eventos_aprendizaje",
+            "exercises": "Ejercicios_feedback",
+            "sessions": "Sesiones",
+        }
+        for key, sheet_name in sheet_map.items():
+            frame = bundle.get(key, pd.DataFrame())
+            frame.to_excel(writer, sheet_name=sheet_name, index=False)
+            worksheet = writer.book[sheet_name]
+            worksheet.freeze_panes = "A2"
+            worksheet.auto_filter.ref = worksheet.dimensions
+    return output.getvalue()
 
 
 def render_teacher_research_dashboard(user):
@@ -3596,46 +4238,96 @@ def render_teacher_research_dashboard(user):
             with st.form("research_group_assignment"):
                 selected_student_id = st.selectbox("Estudiante", student_ids, format_func=lambda value: labels.get(value, str(value)))
                 current_group = safe_student_text(research_students.loc[research_students["user_id"].eq(selected_student_id), "research_group"].iloc[0]) or "Sin asignar"
+                selected_student_row = research_students.loc[research_students["user_id"].eq(selected_student_id)].iloc[0]
+                selected_pretest_state = safe_student_text(selected_student_row.get("pretest_estado")) or "pendiente"
+                selected_data_status = safe_student_text(selected_student_row.get("estado_dato")) or "piloto"
                 selected_group = st.selectbox("Grupo de investigación", RESEARCH_GROUPS, index=RESEARCH_GROUPS.index(current_group) if current_group in RESEARCH_GROUPS else 0)
                 assign_group = st.form_submit_button("Guardar asignación", use_container_width=True)
             if assign_group:
-                update_profile(int(selected_student_id), {"research_group": selected_group})
-                st.success(f"Grupo actualizado: {selected_group}.")
-                st.rerun()
+                if selected_data_status.lower() == "oficial" and selected_pretest_state.lower() != "pendiente":
+                    st.error("No se puede cambiar el grupo de un estudiante oficial después de iniciar el pretest.")
+                else:
+                    update_profile(int(selected_student_id), {"research_group": selected_group})
+                    st.success(f"Grupo actualizado: {selected_group}.")
+                    st.rerun()
 
     df = pd.DataFrame(get_research_results())
-    if df.empty:
-        st.info("Aún no existen pretest o posttest registrados.")
-        return
-
-    df["score"] = pd.to_numeric(df.get("score"), errors="coerce")
+    required_result_columns = [
+        "id", "user_id", "quiz_type", "status", "score", "profile_subject", "profile_course_level",
+        "profile_parallel", "profile_shift", "profile_cohort", "research_group", "estado_dato",
+        "usar_en_investigacion", "consentimiento_informado",
+    ]
+    for column in required_result_columns:
+        if column not in df.columns:
+            df[column] = pd.Series(dtype=float if column in {"id", "user_id", "score"} else object)
+    df["score"] = pd.to_numeric(df["score"], errors="coerce")
     df["student"] = df.apply(
         lambda r: r.get("full_name_normalized") or f"{r.get('first_names') or ''} {r.get('last_names') or ''}".strip() or r.get("username"),
         axis=1,
     )
-    for col in ["profile_subject", "profile_course_level", "profile_parallel", "profile_shift", "profile_cohort", "research_group", "quiz_type", "status"]:
-        if col not in df.columns:
-            df[col] = ""
 
-    def opts(col):
-        values = sorted([str(x).strip() for x in df[col].dropna().unique() if str(x).strip()])
+    def opts(result_column, student_column=None):
+        values = set(str(x).strip() for x in df[result_column].dropna().unique() if str(x).strip())
+        student_column = student_column or result_column
+        if not research_students.empty and student_column in research_students.columns:
+            values.update(str(x).strip() for x in research_students[student_column].dropna().unique() if str(x).strip())
+        values = sorted(values)
         return ["Todos"] + values
 
+    scope_options = [
+        "Oficiales con consentimiento (análisis principal)",
+        "Todos los oficiales (auditoría)",
+        "Datos piloto",
+        "Todos los registros (auditoría)",
+    ]
+    f0, f00 = st.columns(2)
+    selected_scope = f0.selectbox("Conjunto de datos", scope_options, index=0, key="research_data_scope")
+    sel_cohort = f00.selectbox("Cohorte", opts("profile_cohort", "cohort"), key="research_cohort_filter")
     f1, f2, f3 = st.columns(3)
-    sel_subject = f1.selectbox("Materia", opts("profile_subject"), key="research_subject_filter")
-    sel_course = f2.selectbox("Curso", opts("profile_course_level"), key="research_course_filter")
-    sel_parallel = f3.selectbox("Paralelo", opts("profile_parallel"), key="research_parallel_filter")
+    sel_subject = f1.selectbox("Materia", opts("profile_subject", "subject"), key="research_subject_filter")
+    sel_course = f2.selectbox("Curso", opts("profile_course_level", "course_level"), key="research_course_filter")
+    sel_parallel = f3.selectbox("Paralelo", opts("profile_parallel", "parallel"), key="research_parallel_filter")
     f4, f5, f6 = st.columns(3)
-    sel_shift = f4.selectbox("Jornada", opts("profile_shift"), key="research_shift_filter")
-    sel_group = f5.selectbox("Grupo", opts("research_group"), key="research_group_filter")
+    sel_shift = f4.selectbox("Jornada", opts("profile_shift", "shift"), key="research_shift_filter")
+    sel_group = f5.selectbox("Grupo", opts("research_group", "research_group"), key="research_group_filter")
     sel_type = f6.selectbox("Instrumento", ["Todos", "pretest", "posttest"], key="research_type_filter")
 
-    cohort_filtered = df.copy()
+    def truthy(series):
+        return series.fillna(False).astype(str).str.lower().isin({"true", "1", "t", "yes", "si", "sí"})
+
+    def apply_research_scope(frame):
+        if frame.empty:
+            return frame.copy()
+        status = frame.get("estado_dato", pd.Series("piloto", index=frame.index)).fillna("piloto").astype(str).str.lower()
+        if selected_scope == scope_options[0]:
+            return frame[status.eq("oficial") & truthy(frame.get("usar_en_investigacion", pd.Series(False, index=frame.index))) & truthy(frame.get("consentimiento_informado", pd.Series(False, index=frame.index)))].copy()
+        if selected_scope == scope_options[1]:
+            return frame[status.eq("oficial")].copy()
+        if selected_scope == scope_options[2]:
+            return frame[status.eq("piloto")].copy()
+        return frame.copy()
+
+    cohort_filtered = apply_research_scope(df)
+    student_filtered = apply_research_scope(research_students)
+    if sel_cohort != "Todos":
+        cohort_filtered = cohort_filtered[cohort_filtered["profile_cohort"].astype(str) == sel_cohort]
+        student_filtered = student_filtered[student_filtered["cohort"].astype(str) == sel_cohort]
     if sel_subject != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["profile_subject"].astype(str) == sel_subject]
     if sel_course != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["profile_course_level"].astype(str) == sel_course]
     if sel_parallel != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["profile_parallel"].astype(str) == sel_parallel]
     if sel_shift != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["profile_shift"].astype(str) == sel_shift]
     if sel_group != "Todos": cohort_filtered = cohort_filtered[cohort_filtered["research_group"].astype(str) == sel_group]
+    if not student_filtered.empty:
+        if sel_subject != "Todos": student_filtered = student_filtered[student_filtered["subject"].astype(str) == sel_subject]
+        if sel_course != "Todos": student_filtered = student_filtered[student_filtered["course_level"].astype(str) == sel_course]
+        if sel_parallel != "Todos": student_filtered = student_filtered[student_filtered["parallel"].astype(str) == sel_parallel]
+        if sel_shift != "Todos": student_filtered = student_filtered[student_filtered["shift"].astype(str) == sel_shift]
+        if sel_group != "Todos": student_filtered = student_filtered[student_filtered["research_group"].astype(str) == sel_group]
+
+    if selected_scope == scope_options[0]:
+        st.success("Análisis principal protegido: solo datos oficiales con consentimiento y autorización de uso.")
+    else:
+        st.warning("Vista de auditoría o piloto. Estos registros no forman parte del análisis principal oficial.")
 
     # La vista puede mostrar un instrumento, pero el informe inferencial siempre
     # conserva pretest y postest de la cohorte para mantener el emparejamiento.
@@ -3650,7 +4342,7 @@ def render_teacher_research_dashboard(user):
     gain = (pivot["posttest"] - pivot["pretest"]).mean() if {"pretest", "posttest"}.issubset(set(pivot.columns)) else None
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.markdown(f"<div class='metric'><b>{filtered['user_id'].nunique()}</b><br><span>Estudiantes</span></div>", unsafe_allow_html=True)
+    m1.markdown(f"<div class='metric'><b>{student_filtered['user_id'].nunique() if 'user_id' in student_filtered.columns else 0}</b><br><span>Estudiantes en alcance</span></div>", unsafe_allow_html=True)
     m2.markdown(f"<div class='metric'><b>{0 if pd.isna(pre_avg) else pre_avg:.1f}%</b><br><span>Promedio pretest</span></div>", unsafe_allow_html=True)
     m3.markdown(f"<div class='metric'><b>{0 if pd.isna(post_avg) else post_avg:.1f}%</b><br><span>Promedio posttest</span></div>", unsafe_allow_html=True)
     m4.markdown(f"<div class='metric'><b>{'N/D' if gain is None or pd.isna(gain) else f'{gain:.1f} pts'}</b><br><span>Ganancia media</span></div>", unsafe_allow_html=True)
@@ -3683,7 +4375,10 @@ def render_teacher_research_dashboard(user):
         "question_count", "version_code", "cognitive_profile", "total_time_seconds",
         "dimension_scores_json", "created_at", "completed_at", "random_seed"
     ] if c in filtered.columns]
-    st.dataframe(filtered[view_cols], use_container_width=True, height=420)
+    if filtered.empty:
+        st.info("No existen pretest o postest con los filtros seleccionados.")
+    else:
+        st.dataframe(filtered[view_cols], use_container_width=True, height=420)
     st.download_button(
         "Descargar CSV investigación",
         filtered[view_cols].to_csv(index=False).encode("utf-8-sig"),
@@ -3703,7 +4398,8 @@ def render_teacher_research_dashboard(user):
     all_item_df = pd.DataFrame(get_research_item_responses())
     all_event_df = pd.DataFrame(get_research_learning_events())
     all_interaction_df = pd.DataFrame(get_research_interactions())
-    allowed_user_ids = set(pd.to_numeric(cohort_filtered.get("user_id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int))
+    all_session_df = pd.DataFrame(get_research_session_events())
+    allowed_user_ids = set(pd.to_numeric(student_filtered.get("user_id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int))
     allowed_quiz_ids = set(pd.to_numeric(cohort_filtered.get("id", pd.Series(dtype=float)), errors="coerce").dropna().astype(int))
 
     def related_research_rows(source_df):
@@ -3721,7 +4417,39 @@ def render_teacher_research_dashboard(user):
     item_df = related_research_rows(all_item_df)
     event_df = related_research_rows(all_event_df)
     interaction_df = related_research_rows(all_interaction_df)
+    session_df = related_research_rows(all_session_df)
+    export_bundle = build_research_export_bundle(
+        student_filtered,
+        cohort_filtered,
+        item_df,
+        event_df,
+        interaction_df,
+        exercise_df,
+        session_df,
+    )
+    st.markdown("### Exportación para análisis estadístico")
+    st.caption("El Excel incluye resumen por estudiante, respuestas por ítem, eventos y uso de retroalimentación. El CSV contiene el resumen consolidado.")
+    ex1, ex2 = st.columns(2)
+    summary_export = export_bundle.get("summary", pd.DataFrame())
+    ex1.download_button(
+        "Descargar Excel de investigación",
+        research_export_excel(export_bundle),
+        "datos_investigacion_bunsekichat.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        disabled=summary_export.empty,
+    )
+    ex2.download_button(
+        "Descargar CSV oficial",
+        summary_export.to_csv(index=False).encode("utf-8-sig"),
+        "datos_investigacion_bunsekichat.csv",
+        "text/csv",
+        use_container_width=True,
+        disabled=summary_export.empty,
+    )
     report_filters = {
+        "data_scope": selected_scope,
+        "cohort": sel_cohort,
         "subject": sel_subject,
         "course": sel_course,
         "parallel": sel_parallel,
@@ -3799,6 +4527,114 @@ def render_teacher_research_dashboard(user):
     else:
         e2.info("Aún no hay encuestas finales registradas.")
 
+
+def render_bulk_enrollment_page(user):
+    st.markdown("""
+    <div class='teacher-card'>
+        <h3>Matrícula masiva de investigación</h3>
+        <p class='small'>Crea cuentas oficiales desde Excel o CSV, valida cédula/correo y entrega credenciales temporales para el primer ingreso.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Cohorte oficial", "2026")
+    c2.metric("Estado inicial", "Oficial")
+    c3.metric("Análisis", "Después del consentimiento")
+    st.code(OFFICIAL_COHORT_CODE, language=None)
+    st.download_button(
+        "Descargar plantilla Excel",
+        build_enrollment_template_excel(),
+        "plantilla_matricula_bunsekichat_2026.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
+    st.caption("Use la plantilla y mantenga la cédula como texto de 10 dígitos. Los grupos permitidos son Experimental y Control.")
+
+    uploaded = st.file_uploader("Subir listado de estudiantes", type=["xlsx", "csv"], key="bulk_enrollment_file")
+    checked = pd.DataFrame()
+    preview_issues = pd.DataFrame()
+    if uploaded is not None:
+        try:
+            raw_df = read_enrollment_upload(uploaded)
+            normalized, file_issues = prepare_enrollment_dataframe(raw_df)
+            checked, database_issues = validate_enrollment_against_database(normalized)
+            preview_issues = pd.concat([file_issues, database_issues], ignore_index=True).drop_duplicates()
+            valid_count = int(checked["valido"].sum()) if not checked.empty else 0
+            invalid_count = len(checked) - valid_count
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Filas leídas", len(checked))
+            m2.metric("Listas para crear", valid_count)
+            m3.metric("Con observaciones", invalid_count)
+            visible_columns = [column for column in [
+                "fila_origen", "cedula", "nombres", "apellidos", "correo", "materia", "curso",
+                "paralelo", "jornada", "grupo_investigacion", "cohorte", "valido", "errores",
+            ] if column in checked.columns]
+            st.dataframe(checked[visible_columns], use_container_width=True, height=360)
+            if not preview_issues.empty:
+                with st.expander("Ver observaciones de validación", expanded=True):
+                    st.dataframe(preview_issues, use_container_width=True, height=220)
+                    st.download_button(
+                        "Descargar errores CSV",
+                        preview_issues.to_csv(index=False).encode("utf-8-sig"),
+                        "errores_matricula_bunsekichat.csv",
+                        "text/csv",
+                        use_container_width=True,
+                    )
+            confirm = st.checkbox(
+                "Confirmo que revisé la cohorte, los grupos y los datos personales.",
+                key="confirm_bulk_enrollment",
+            )
+            if st.button(
+                "Crear estudiantes oficiales",
+                disabled=valid_count == 0 or not confirm,
+                use_container_width=True,
+                key="create_bulk_enrollment",
+            ):
+                with st.spinner("Creando usuarios y registrando la auditoría de matrícula..."):
+                    result = import_bulk_enrollment(checked, user["id"], uploaded.name)
+                st.session_state["bulk_enrollment_result"] = result
+                st.success(f"Lote {result['batch_id']} procesado: {result['created']} creados y {result['rejected']} rechazados.")
+                st.rerun()
+        except Exception as error:
+            st.error(f"No se pudo procesar el archivo: {error}")
+
+    result = st.session_state.get("bulk_enrollment_result")
+    if result:
+        credentials = result.get("credentials", pd.DataFrame())
+        errors = result.get("errors", pd.DataFrame())
+        st.markdown("### Resultado del último lote")
+        if not credentials.empty:
+            st.warning("Descargue y entregue estas credenciales de forma privada. Las contraseñas temporales no pueden recuperarse después de cerrar esta sesión.")
+            st.dataframe(credentials, use_container_width=True, height=260)
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                credentials.to_excel(writer, sheet_name="Credenciales", index=False)
+                if not errors.empty:
+                    errors.to_excel(writer, sheet_name="Rechazados", index=False)
+            d1, d2 = st.columns(2)
+            d1.download_button(
+                "Descargar credenciales Excel",
+                output.getvalue(),
+                f"credenciales_lote_{result['batch_id']}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+            d2.download_button(
+                "Descargar credenciales CSV",
+                credentials.to_csv(index=False).encode("utf-8-sig"),
+                f"credenciales_lote_{result['batch_id']}.csv",
+                "text/csv",
+                use_container_width=True,
+            )
+        if not errors.empty:
+            st.markdown("#### Filas rechazadas")
+            st.dataframe(errors, use_container_width=True, height=220)
+
+    batches = pd.DataFrame(get_recent_enrollment_batches())
+    if not batches.empty:
+        st.markdown("### Historial de matrículas")
+        st.dataframe(batches, use_container_width=True, height=260)
+
 def admin_page(user):
     teacher_page = render_teacher_sidebar()
 
@@ -3832,6 +4668,10 @@ def admin_page(user):
 
     if teacher_page == "📚 Planes analíticos":
         render_teacher_plan_manager(user)
+        return
+
+    if teacher_page == "👥 Matrícula masiva":
+        render_bulk_enrollment_page(user)
         return
 
     if teacher_page == "🧪 Investigación pre/post":
@@ -3872,6 +4712,10 @@ def admin_page(user):
     sel_shift = f4.selectbox("Jornada", opts(students, "shift"))
     sel_teacher = f5.selectbox("Docente", opts(students, "teacher"))
     sel_level = f6.selectbox("Nivel", opts(students, "level"))
+    f7, f8, f9 = st.columns(3)
+    sel_data_status = f7.selectbox("Tipo de dato", ["Todos", "Solo oficiales", "Solo piloto"], key="admin_data_status")
+    sel_cohort = f8.selectbox("Cohorte de investigación", opts(students, "cohort"), key="admin_cohort")
+    sel_research_group = f9.selectbox("Grupo de investigación", opts(students, "research_group"), key="admin_research_group")
 
     filtered_students = students.copy()
     if not filtered_students.empty:
@@ -3881,15 +4725,19 @@ def admin_page(user):
         if sel_shift != "Todos": filtered_students = filtered_students[filtered_students["shift"].astype(str) == sel_shift]
         if sel_teacher != "Todos": filtered_students = filtered_students[filtered_students["teacher"].astype(str) == sel_teacher]
         if sel_level != "Todos": filtered_students = filtered_students[filtered_students["level"].astype(str) == sel_level]
+        if sel_data_status == "Solo oficiales": filtered_students = filtered_students[filtered_students["estado_dato"].fillna("piloto").astype(str).str.lower().eq("oficial")]
+        if sel_data_status == "Solo piloto": filtered_students = filtered_students[filtered_students["estado_dato"].fillna("piloto").astype(str).str.lower().eq("piloto")]
+        if sel_cohort != "Todos": filtered_students = filtered_students[filtered_students["cohort"].astype(str) == sel_cohort]
+        if sel_research_group != "Todos": filtered_students = filtered_students[filtered_students["research_group"].astype(str) == sel_research_group]
 
     allowed_ids = set(filtered_students["id"].dropna().astype(int).tolist()) if not filtered_students.empty and "id" in filtered_students.columns else set()
 
     filtered_logs = logs.copy()
-    if allowed_ids and not filtered_logs.empty and "user_id" in filtered_logs.columns:
+    if not filtered_logs.empty and "user_id" in filtered_logs.columns:
         filtered_logs = filtered_logs[filtered_logs["user_id"].isin(allowed_ids)]
 
     filtered_quizzes = quizzes.copy()
-    if allowed_ids and not filtered_quizzes.empty and "user_id" in filtered_quizzes.columns:
+    if not filtered_quizzes.empty and "user_id" in filtered_quizzes.columns:
         filtered_quizzes = filtered_quizzes[filtered_quizzes["user_id"].isin(allowed_ids)]
 
     st.markdown(f"<div class='teacher-card'><b>Vista seleccionada en menú:</b> {teacher_page}</div>", unsafe_allow_html=True)
@@ -4032,12 +4880,17 @@ else:
     # =========================================
     # GPS GLOBAL AUTOMÁTICO
     # =========================================
-    capture_browser_gps(
-        uid=u['id'],
-        page='global',
-        event_type='app_open',
-        show_status=False
-    )
+    capture_global_gps = True
+    if u.get('role') not in ['admin', 'teacher', 'docente']:
+        current_profile = get_profile(u['id'])
+        capture_global_gps = not is_official_profile(current_profile) or official_profile_ready(u, current_profile)
+    if capture_global_gps:
+        capture_browser_gps(
+            uid=u['id'],
+            page='global',
+            event_type='app_open',
+            show_status=False
+        )
 
     if u.get('role') in ['admin', 'teacher', 'docente']:
         admin_page(u)
