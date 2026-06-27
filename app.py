@@ -3578,15 +3578,24 @@ def render_teacher_research_dashboard(user):
         if research_students.empty:
             st.info("Aún no existen estudiantes registrados.")
         else:
+            def safe_student_text(value):
+                if value is None or pd.isna(value):
+                    return ""
+                return str(value).strip()
+
             student_ids = research_students["user_id"].tolist()
-            labels = {
-                row["user_id"]: (row.get("full_name_normalized") or f"{row.get('first_names') or ''} {row.get('last_names') or ''}".strip() or row.get("username"))
-                + f" · {row.get('cohort') or 'Sin cohorte'} · {row.get('research_group') or 'Sin asignar'}"
-                for _, row in research_students.iterrows()
-            }
+            labels = {}
+            for _, row in research_students.iterrows():
+                full_name = safe_student_text(row.get("full_name_normalized"))
+                if not full_name:
+                    full_name = normalize_spaces(f"{safe_student_text(row.get('first_names'))} {safe_student_text(row.get('last_names'))}")
+                full_name = full_name or safe_student_text(row.get("username")) or f"Estudiante {row['user_id']}"
+                cohort_label = safe_student_text(row.get("cohort")) or "Sin cohorte"
+                group_label = safe_student_text(row.get("research_group")) or "Sin asignar"
+                labels[row["user_id"]] = f"{full_name} · {cohort_label} · {group_label}"
             with st.form("research_group_assignment"):
                 selected_student_id = st.selectbox("Estudiante", student_ids, format_func=lambda value: labels.get(value, str(value)))
-                current_group = research_students.loc[research_students["user_id"].eq(selected_student_id), "research_group"].iloc[0]
+                current_group = safe_student_text(research_students.loc[research_students["user_id"].eq(selected_student_id), "research_group"].iloc[0]) or "Sin asignar"
                 selected_group = st.selectbox("Grupo de investigación", RESEARCH_GROUPS, index=RESEARCH_GROUPS.index(current_group) if current_group in RESEARCH_GROUPS else 0)
                 assign_group = st.form_submit_button("Guardar asignación", use_container_width=True)
             if assign_group:
