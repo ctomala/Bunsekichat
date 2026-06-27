@@ -66,6 +66,7 @@ except Exception:
     DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 DB_LOCK = threading.RLock()
+DATABASE_SCHEMA_VERSION = "2026-06-27-cohort-enrollment-v2"
 SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "20"))
 # Lee la API desde .env. Para pruebas locales, puedes pegar una clave temporal en GEMINI_API_KEY_FALLBACK.
 # IMPORTANTE: no subas claves reales a internet ni a GitHub.
@@ -1354,9 +1355,35 @@ def init_db():
 
 
 @st.cache_resource
-def setup_database_once():
+def setup_database_once(schema_version):
+    # schema_version forma parte de la clave de caché y obliga a ejecutar
+    # migraciones nuevas después de un despliegue en caliente de Streamlit.
     init_db()
     return True
+
+
+def ensure_cohort_schema_compatibility():
+    schema = fetchone("""
+        SELECT
+            EXISTS(
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='profiles' AND column_name='estado_dato'
+            ) AS has_profile_scope,
+            EXISTS(
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='profiles' AND column_name='consentimiento_informado'
+            ) AS has_consent,
+            EXISTS(
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='users' AND column_name='password_temporal'
+            ) AS has_temporary_password,
+            EXISTS(
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='users' AND column_name='primer_ingreso'
+            ) AS has_first_login
+    """) or {}
+    if not all(schema.get(key) for key in ["has_profile_scope", "has_consent", "has_temporary_password", "has_first_login"]):
+        init_db()
 
 
 def now(): return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -2069,6 +2096,7 @@ def _clean_report_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_teacher_tables():
+    ensure_cohort_schema_compatibility()
     users_rows = fetchall("""
         SELECT u.id,u.username,u.role,u.active,u.created_at,u.last_login,
                p.first_names,p.last_names,p.course,p.subject,p.course_level,p.parallel,p.shift,p.cohort,p.full_name_normalized,
@@ -4895,7 +4923,7 @@ def admin_page(user):
         x3.download_button("🎮 CSV pruebas", filtered_quizzes.to_csv(index=False).encode('utf-8-sig'), "pruebas_bunsekichat.csv", "text/csv", use_container_width=True)
         return
 
-setup_database_once()
+setup_database_once(DATABASE_SCHEMA_VERSION)
 session_guard()
 
 if 'user' not in st.session_state:
