@@ -240,7 +240,15 @@ CSS = """
     --shadow:0 22px 55px rgba(31,41,55,.13);
 }
 
-header, footer, #MainMenu {visibility:hidden; height:0 !important;}
+footer, #MainMenu {visibility:hidden; height:0 !important;}
+header[data-testid="stHeader"]{
+    visibility:visible !important;
+    height:0 !important;
+    min-height:0 !important;
+    background:transparent !important;
+    overflow:visible !important;
+    pointer-events:none !important;
+}
 div[data-testid="stToolbar"], div[data-testid="stDecoration"], div[data-testid="stStatusWidget"]{display:none !important;}
 html, body, [class*="css"]{font-family:"Segoe UI", Tahoma, Geneva, Verdana, sans-serif;}
 .stApp{background:linear-gradient(135deg,#eef0f3 0%,#e5e7eb 55%,#f6dce9 100%); color:var(--text);}
@@ -559,6 +567,7 @@ section[data-testid="stSidebar"] *{
 
 </style>
 """, unsafe_allow_html=True)
+
 # =========================================================
 # NIVEL PRO TOTAL: FIX FINAL DE SIDEBAR, CONTRASTE Y BOTONES
 # =========================================================
@@ -879,6 +888,105 @@ div[data-testid="stRadio"] div[role="radiogroup"] [aria-checked="true"]{
 div[data-testid="stRadio"] div[role="radiogroup"] [aria-checked="true"] *,
 div[data-testid="stRadio"] div[role="radiogroup"] input:checked + div *{
     color:#9d0b5c !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Última capa responsive: debe permanecer después de todos los estilos para
+# que el botón no vuelva a ocultarse por reglas heredadas de Streamlit.
+st.markdown("""
+<style id="bunseki-mobile-sidebar-fix">
+header[data-testid="stHeader"],
+header[data-testid="stHeader"] > div{
+    visibility:visible !important;
+    overflow:visible !important;
+    pointer-events:none !important;
+}
+
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stExpandSidebarButton"],
+header[data-testid="stHeader"] button[aria-label*="sidebar" i]{
+    display:flex !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    pointer-events:auto !important;
+    position:fixed !important;
+    top:10px !important;
+    left:10px !important;
+    z-index:2147483647 !important;
+    width:48px !important;
+    height:48px !important;
+    min-width:48px !important;
+    min-height:48px !important;
+    align-items:center !important;
+    justify-content:center !important;
+    background:#d4147f !important;
+    color:#ffffff !important;
+    border:2px solid #ffffff !important;
+    border-radius:12px !important;
+    box-shadow:0 10px 28px rgba(111,15,73,.42) !important;
+}
+
+[data-testid="collapsedControl"] svg,
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="stExpandSidebarButton"] svg,
+header[data-testid="stHeader"] button[aria-label*="sidebar" i] svg{
+    width:25px !important;
+    height:25px !important;
+    color:#ffffff !important;
+    fill:#ffffff !important;
+    stroke:#ffffff !important;
+}
+
+[data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"]{
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+}
+
+@media (max-width:1024px){
+    [data-testid="collapsedControl"]::after,
+    [data-testid="stSidebarCollapsedControl"]::after,
+    [data-testid="stExpandSidebarButton"]::after,
+    header[data-testid="stHeader"] button[aria-label*="sidebar" i]::after{
+        content:"MENÚ · POSTTEST" !important;
+        display:block !important;
+        visibility:visible !important;
+        position:absolute !important;
+        left:54px !important;
+        top:5px !important;
+        width:max-content !important;
+        padding:8px 12px !important;
+        border:1px solid #f1b8d4 !important;
+        border-radius:10px !important;
+        background:#ffffff !important;
+        color:#6f0f49 !important;
+        -webkit-text-fill-color:#6f0f49 !important;
+        font-size:.78rem !important;
+        font-weight:900 !important;
+        line-height:1 !important;
+        white-space:nowrap !important;
+        box-shadow:0 8px 20px rgba(31,41,55,.16) !important;
+    }
+
+    section[data-testid="stSidebar"]{
+        width:min(88vw,320px) !important;
+        min-width:min(88vw,320px) !important;
+        max-width:min(88vw,320px) !important;
+        height:100dvh !important;
+        z-index:2147483646 !important;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{
+        overflow-y:auto !important;
+        padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 1.5rem) !important;
+    }
+
+    .block-container{
+        padding-top:4.25rem !important;
+        padding-left:.75rem !important;
+        padding-right:.75rem !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -3474,6 +3582,10 @@ def render_student_sidebar(prof):
         student_pages,
         label_visibility="collapsed",
         key="student_nav"
+    )
+    st.sidebar.markdown(
+        "<div class='saas-help-card'><b>¿Buscas el posttest?</b><br>Selecciona <b>Evaluación IA</b> y luego elige <b>Posttest</b>.</div>",
+        unsafe_allow_html=True,
     )
     st.sidebar.markdown("<div class='saas-section-title'>Configuración académica</div>", unsafe_allow_html=True)
     topic = st.sidebar.selectbox("Área", list(TOPICS.keys()), key="student_topic")
