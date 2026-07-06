@@ -3871,6 +3871,23 @@ def student_page(user):
         + "</div>"
     )
     st.markdown(hero_html, unsafe_allow_html=True)
+
+    pretest_completed = str(prof.get("pretest_estado") or "pendiente").strip().lower() == "completado"
+    quick_assessment_mode = "Posttest" if pretest_completed else "Pretest"
+    st.markdown(
+        f"<div class='saas-help-card'><b>Acceso rápido a la evaluación</b><br>"
+        f"Pulsa el botón para abrir directamente el <b>{quick_assessment_mode}</b>.</div>",
+        unsafe_allow_html=True,
+    )
+    if st.button(
+        f"Abrir {quick_assessment_mode}",
+        key="student_assessment_shortcut",
+        type="primary",
+        use_container_width=True,
+    ):
+        st.session_state["student_nav"] = "🧠 Evaluación IA"
+        st.session_state["assessment_mode"] = quick_assessment_mode
+
     page, topic, subtopic, level = render_student_sidebar(prof)
     gps_actual = capture_browser_gps(user['id'], page=page, topic=topic, subtopic=subtopic, event_type='app_open', show_status=False)
     rows=interactions(user['id']); user_q=[r for r in rows if r['role']=='user']
