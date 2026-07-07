@@ -1687,6 +1687,35 @@ def set_research_assessment_state(uid, quiz_type, status):
         update_profile(uid, {field: status})
 
 
+def invalidate_research_posttests_for_repeat(user_ids, reason, admin_user=None):
+    clean_ids = sorted({int(uid) for uid in user_ids if pd.notna(uid)})
+    if not clean_ids:
+        return {"students": 0, "attempts": 0}
+    reason = normalize_spaces(reason) or "Incidencia metodologica reportada por el docente."
+    admin_label = (admin_user or {}).get("username") or (admin_user or {}).get("id") or "admin"
+    stamp = now()
+    note = (
+        f"Intento anulado para repeticion metodologica el {stamp}. "
+        f"Responsable: {admin_label}. Motivo: {reason}"
+    )
+    placeholders = ",".join(["%s"] * len(clean_ids))
+    rows = fetchall(f"""
+        UPDATE adaptive_quizzes
+        SET status='invalidado_metodologia',
+            recommendation=TRIM(COALESCE(recommendation,'') || E'\n' || %s)
+        WHERE user_id IN ({placeholders})
+          AND COALESCE(quiz_type,'adaptive')='posttest'
+          AND LOWER(COALESCE(status,'')) NOT IN ('invalidado_metodologia','superseded')
+        RETURNING id, user_id
+    """, [note, *clean_ids])
+    execute(f"""
+        UPDATE profiles
+        SET posttest_estado='pendiente'
+        WHERE user_id IN ({placeholders})
+    """, clean_ids)
+    return {"students": len(clean_ids), "attempts": len(rows)}
+
+
 def read_enrollment_upload(uploaded_file):
     content = uploaded_file.getvalue()
     filename = str(uploaded_file.name or "").lower()
@@ -2966,8 +2995,19 @@ def load_adaptive_quiz(quiz_id):
 
 def get_latest_adaptive_quiz(uid, quiz_type=None):
     if quiz_type:
-        return fetchone("SELECT * FROM adaptive_quizzes WHERE user_id=%s AND COALESCE(quiz_type,'adaptive')=%s ORDER BY id DESC LIMIT 1", (uid, quiz_type))
-    return fetchone("SELECT * FROM adaptive_quizzes WHERE user_id=%s ORDER BY id DESC LIMIT 1", (uid,))
+        return fetchone("""
+            SELECT * FROM adaptive_quizzes
+            WHERE user_id=%s
+              AND COALESCE(quiz_type,'adaptive')=%s
+              AND LOWER(COALESCE(status,'')) NOT IN ('superseded','invalidado_metodologia','invalidated_methodology')
+            ORDER BY id DESC LIMIT 1
+        """, (uid, quiz_type))
+    return fetchone("""
+        SELECT * FROM adaptive_quizzes
+        WHERE user_id=%s
+          AND LOWER(COALESCE(status,'')) NOT IN ('superseded','invalidado_metodologia','invalidated_methodology')
+        ORDER BY id DESC LIMIT 1
+    """, (uid,))
 
 
 def quiz_matches_research_focus(quiz):
@@ -4511,6 +4551,69 @@ def render_teacher_research_dashboard(user):
         st.success("Análisis principal protegido: solo datos oficiales con consentimiento y autorización de uso.")
     else:
         st.warning("Vista de auditoría o piloto. Estos registros no forman parte del análisis principal oficial.")
+
+    with st.expander("Repetir posttest por incidencia metodologica", expanded=False):
+        st.caption(
+            "Use esta opcion solo si hubo problemas de comprension de la metodologia, conectividad o aplicacion. "
+            "Los posttest anteriores se conservan para auditoria, pero no cuentan en el analisis principal."
+        )
+        reset_candidates = student_filtered.copy()
+        if reset_candidates.empty or "user_id" not in reset_candidates.columns:
+            st.info("No hay estudiantes en el alcance de filtros actual.")
+        else:
+            def reset_student_label(row):
+                raw_name = str(row.get("full_name_normalized") or "").strip()
+                if not raw_name:
+                    raw_name = f"{row.get('first_names') or ''} {row.get('last_names') or ''}"
+                name = normalize_spaces(raw_name) or str(row.get("username") or f"Estudiante {row.get('user_id')}")
+                cohort = normalize_spaces(row.get("cohort")) or "Sin cohorte"
+                group = normalize_spaces(row.get("research_group")) or "Sin grupo"
+                post_state = normalize_spaces(row.get("posttest_estado")) or "pendiente"
+                return f"{name} - {cohort} - {group} - posttest: {post_state}"
+
+            reset_scope = st.radio(
+                "Alcance de repeticion",
+                ["Todos los estudiantes filtrados", "Un estudiante"],
+                horizontal=True,
+                key="repeat_posttest_scope",
+            )
+            if reset_scope == "Un estudiante":
+                candidate_ids = reset_candidates["user_id"].tolist()
+                label_map = {row["user_id"]: reset_student_label(row) for _, row in reset_candidates.iterrows()}
+                selected_repeat_id = st.selectbox(
+                    "Estudiante",
+                    candidate_ids,
+                    format_func=lambda value: label_map.get(value, str(value)),
+                    key="repeat_posttest_student",
+                )
+                reset_user_ids = [int(selected_repeat_id)]
+            else:
+                reset_user_ids = pd.to_numeric(reset_candidates["user_id"], errors="coerce").dropna().astype(int).drop_duplicates().tolist()
+                st.info(f"Se habilitara repeticion para {len(reset_user_ids)} estudiante(s) del filtro actual.")
+
+            reset_reason = st.text_area(
+                "Motivo metodologico",
+                value="Los estudiantes no comprendieron la metodologia de aplicacion del posttest.",
+                key="repeat_posttest_reason",
+            )
+            reset_confirm = st.text_input(
+                "Confirmacion",
+                placeholder="Escriba REPETIR POSTTEST",
+                key="repeat_posttest_confirm",
+            )
+            if st.button("Habilitar nuevo posttest", key="repeat_posttest_button", type="primary", use_container_width=True):
+                if reset_confirm.strip().upper() != "REPETIR POSTTEST":
+                    st.error("Para confirmar, escriba exactamente: REPETIR POSTTEST")
+                elif not reset_user_ids:
+                    st.error("No hay estudiantes seleccionados.")
+                else:
+                    result = invalidate_research_posttests_for_repeat(reset_user_ids, reset_reason, user)
+                    st.success(
+                        f"Posttest habilitado nuevamente para {result['students']} estudiante(s). "
+                        f"Intentos anteriores anulados para analisis principal: {result['attempts']}."
+                    )
+                    st.info("Indique a los estudiantes que ingresen a Evaluacion IA > Posttest > Iniciar Posttest.")
+                    st.rerun()
 
     # La vista puede mostrar un instrumento, pero el informe inferencial siempre
     # conserva pretest y postest de la cohorte para mantener el emparejamiento.
