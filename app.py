@@ -4651,7 +4651,7 @@ def render_teacher_research_dashboard(user):
     }
     report_signature = hashlib.sha256(json.dumps(signature_payload, sort_keys=True).encode("utf-8")).hexdigest()
 
-    st.markdown("<div class='teacher-card'><h3>Motor Estadístico-Predictivo</h3><p class='small'>EDA, psicometría, hipótesis, comparación de grupos, ANCOVA, correlaciones, predicción, riesgo académico y exportación científica reproducible.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='teacher-card'><h3>Motor Estadístico-Predictivo</h3><p class='small'>EDA, psicometría, hipótesis pretest-posttest para grupo experimental único, normalidad, tamaño del efecto, correlaciones, predicción y exportación científica reproducible.</p></div>", unsafe_allow_html=True)
     safe_group = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{sel_course}_{sel_parallel}_{sel_shift}_{sel_group}").strip("_") or "cohorte"
     if build_scientific_package is not None:
         if st.button("Generar paquete científico completo", key="generate_scientific_package", use_container_width=True):
@@ -4678,7 +4678,7 @@ def render_teacher_research_dashboard(user):
             s1.metric("Estudiantes", summary.get("students", 0))
             s2.metric("Pares completos", summary.get("paired", 0))
             s3.metric("Formas psicométricas", summary.get("psychometric_forms", 0))
-            s4.metric("Comparaciones de grupo", summary.get("group_comparisons", 0))
+            s4.metric("Contrastes", summary.get("group_comparisons", 0))
             d1, d2, d3 = st.columns(3)
             d1.download_button("Descargar paquete ZIP", package["zip"], f"paquete_cientifico_{safe_group}.zip", "application/zip", use_container_width=True)
             d2.download_button("Descargar informe Word", package["word"], f"informe_predictivo_{safe_group}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)

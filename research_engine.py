@@ -362,16 +362,22 @@ def _between_group_test(dataset, variable):
 
 def group_comparisons(dataset):
     rows = []
+    data = dataset.copy()
+    if "grupo" in data.columns:
+        data["grupo"] = data["grupo"].astype(str).str.strip().str.title()
     for variable in ["pretest_total", "postest_total", "ganancia_aprendizaje", "comprension_conceptual_post", "procedimientos_post", "aplicaciones_post", "resolucion_problemas_post"]:
-        if variable in dataset.columns:
-            result = _between_group_test(dataset, variable)
+        if variable in data.columns:
+            result = _between_group_test(data, variable)
             if result:
                 rows.append(result)
     for group_name in ["Experimental", "Control"]:
-        group = dataset[dataset.get("grupo", pd.Series(dtype=str)).eq(group_name)][["pretest_total", "postest_total"]].dropna()
+        if not {"grupo", "pretest_total", "postest_total"}.issubset(data.columns):
+            continue
+        group = data[data["grupo"].eq(group_name)][["pretest_total", "postest_total"]].dropna()
         if len(group) < 2:
             continue
-        paired = group.assign(gain=group["postest_total"] - group["pretest_total"])
+        paired = group.rename(columns={"pretest_total": "pretest", "postest_total": "posttest"}).copy()
+        paired["gain"] = paired["posttest"] - paired["pretest"]
         result = _paired_statistics(paired)
         primary_name = result.get("primary")
         primary = next((test for test in result.get("tests", []) if test["name"] == primary_name), None)
@@ -398,6 +404,9 @@ def ancova_analysis(dataset):
     data = dataset[["grupo", "pretest_total", "postest_total"]].dropna()
     data = data[data["grupo"].isin(["Experimental", "Control"])].copy()
     counts = data["grupo"].value_counts()
+    if set(counts.index) == {"Experimental"}:
+        result["reason"] = "No aplica al diseno de grupo experimental unico. El analisis principal es el contraste pareado pretest-postest con tamano del efecto y ganancia de aprendizaje."
+        return result
     if len(data) < 20 or not {"Experimental", "Control"}.issubset(counts.index) or counts.min() < 5:
         result["reason"] = "ANCOVA requiere ambos grupos, al menos 5 casos por grupo y 20 casos completos como mínimo operativo."
         return result
@@ -770,12 +779,12 @@ def _append_advanced_word(base_word, dataset, cleaning, normality, reliability, 
     if not items.empty:
         _add_table(doc, ["Instrumento", "Versión", "Ítem", "n", "p", "Dificultad", "Discriminación", "Calidad"], _df_rows(items, ["instrumento", "version", "item_code", "n", "dificultad_p", "clasificacion_dificultad", "discriminacion_item_total", "calidad_item"], {"dificultad_p": lambda x: _number(x, 3), "discriminacion_item_total": lambda x: _number(x, 3)}, max_rows=80), font_size=6.8)
 
-    doc.add_heading("10.4 Comparación experimental-control", level=2)
+    doc.add_heading("10.4 Contraste pretest-posttest y comparaciones", level=2)
     if groups.empty:
-        doc.add_paragraph("No disponible: asigne estudiantes a los grupos Experimental y Control y complete ambas mediciones.")
+        doc.add_paragraph("No disponible: se requieren al menos dos estudiantes con pretest y postest completos.")
     else:
         _add_table(doc, ["Comparación", "Variable", "n Exp.", "n Ctrl.", "M/dif. Exp.", "M/dif. Ctrl.", "Prueba", "p", "Efecto"], _df_rows(groups, ["comparacion", "variable", "n_experimental", "n_control", "media_experimental", "media_control", "prueba", "p", "efecto"], {"media_experimental": lambda x: _number(x), "media_control": lambda x: _number(x), "p": _pvalue, "efecto": lambda x: _number(x, 3)}), font_size=6.8)
-        _add_note(doc, "Selección", "Se utiliza t independiente con normalidad y varianzas homogéneas, Welch ante heterogeneidad y Mann-Whitney cuando la normalidad no es defendible.")
+        _add_note(doc, "Selección", "Para grupo experimental único se reporta el contraste pareado pretest-postest. Si en otro estudio se agrega control, el motor habilita t independiente, Welch o Mann-Whitney cuando corresponda.")
 
     doc.add_heading("10.5 ANCOVA", level=2)
     if not ancova.get("available"):
