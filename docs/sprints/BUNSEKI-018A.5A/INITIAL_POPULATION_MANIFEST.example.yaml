@@ -1,0 +1,28 @@
+# DESIGN ONLY — no production identifiers or personal data.
+teacher:
+  user_reference: "<FOUNDER_DECISION_REQUIRED>"
+  binding_strategy: "<LINK_EXISTING_AUTHORIZED_USER_OR_CREATE_DISTINCT_USER>"
+academic_period:
+  code: "<REQUIRED>"
+  name: "<REQUIRED>"
+  start_date: "<REQUIRED_YYYY-MM-DD>"
+  end_date: "<REQUIRED_YYYY-MM-DD>"
+  status: "draft"
+courses:
+  - subject_code: "EST"
+    course_code: "<REQUIRED>"
+    name: "<REQUIRED>"
+    status: "draft"
+    teacher_assignment_role: "instructor"
+parallels:
+  - course_code: "<REQUIRED>"
+    code: "<REQUIRED>"
+    name: "<REQUIRED>"
+    active: true
+cohorts:
+  - course_code: "<REQUIRED>"
+    code: "<REQUIRED_NON_PII_GLOBAL_UNIQUE>"
+    name: "<REQUIRED>"
+    research_group: "<OPTIONAL_NON_PII>"
+    status: "active"
+enrollments: [] # Initial population may legitimately have none.
