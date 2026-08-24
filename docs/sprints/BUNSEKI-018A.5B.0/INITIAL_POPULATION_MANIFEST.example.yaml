@@ -1,0 +1,28 @@
+# APPROVED STRUCTURE MANIFEST — execution still requires explicit 018A.5B.1 authorization.
+# Placeholder only; no plaintext password is stored here.
+teacher:
+  username: "ctomala.docente"
+  password: "<SUPPLIED_AT_EXECUTION_ONLY>"
+  role: "teacher"
+  profile_creation: false
+academic_period:
+  code: "2026-2027-CII"
+  name: "2026-2027-CII"
+  start_date: "2026-10-01"
+  end_date: "2027-02-25"
+  status: "draft"
+subjects:
+  ALG: { display_name: "Álgebra Lineal" }
+  ALG-ELEM: { display_name: "Álgebra Elemental / Precálculo" }
+  EST: { display_name: "Estadística" }
+  CALC-DIF: { display_name: "Cálculo Diferencial" }
+  CALC-INT: { display_name: "Cálculo Integral" }
+courses:
+  CALC-DIF: { course_code: "PMF-MA-4", parallels: ["A1", "A2"] }
+  EST: { course_code: "PMF-MA-3", parallels: ["3A1", "3A2"] }
+  ALG: { course_code: "PMF-MA-5", parallels: ["5A1"] }
+  ALG-ELEM: { course_code: "PMF-MA-2", parallels: ["2A1"] }
+  CALC-INT: { course_code: "PMF-MA-5C", parallels: ["5C1", "5C2"] }
+cohort_code_template: "{period}-{subject}-{course}-{parallel}"
+students: { populate: false }
+historical_reconciliation: { enabled: false }
