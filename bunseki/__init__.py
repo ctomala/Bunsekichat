@@ -1,0 +1,1 @@
+"""BunsekiChat domain modules."""
