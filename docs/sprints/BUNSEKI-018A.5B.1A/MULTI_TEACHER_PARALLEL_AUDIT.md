@@ -1,0 +1,7 @@
+# Multi-teacher and parallel isolation audit
+
+`MULTI_TEACHER_MODEL=PASS`: `teachers.user_id` is unique but multiple teacher rows exist; `teacher_courses` permits many teachers per course and many courses per teacher. Teachers and parallels are data rows, not hardcoded. `MULTI_PARALLEL_MODEL=PASS`; `DYNAMIC_PARALLEL_CREATION=PASS`; `PARALLELS_NOT_HARDCODED=PASS` because parallels are unbounded rows with uniqueness only on `(course_id, code)`.
+
+`TEACHER_PARALLEL_ISOLATION=FAIL`. The real authorization service joins `enrollments.course_id` to `teacher_courses.course_id` and never checks `enrollments.parallel_id`. Therefore a teacher assigned to PMF-MA-4 can access A1/A2/A3 students, interactions, analytics, and direct enrollment IDs for that course. A synthetic Teacher-A/Teacher-B parallel isolation test cannot pass with the current schema; `MULTI_TEACHER_SYNTHETIC_TEST=NOT_POSSIBLE_WITH_CURRENT_SCHEMA` and `DIRECT_ID_CROSS_PARALLEL_DENIAL=FAIL`.
+
+Minimum scalable correction: add an explicit `teacher_parallels(teacher_id, parallel_id, PRIMARY KEY(teacher_id, parallel_id))` authorization relation, then require it in every teacher-facing enrollment, interaction, GPS-derived analytics, attempt, and export query. This supports multiple teachers per course, arbitrary future parallels, and a teacher across multiple parallels without hardcoding. Do not run 5B.1B until this change is separately designed, migrated, tested, and approved.

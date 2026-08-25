@@ -1,0 +1,13 @@
+# BUNSEKI-018A.5B.1A validation report
+
+- `GIT_LINEAGE=PASS`; `FINAL_MANIFEST=PASS`; `TEACHER_ACCOUNT_CONTRACT=PASS`; `PASSWORD_EXECUTION_DESIGN=PASS`.
+- `SOURCE_FILE_UTF8=PASS`; `PRODUCTION_SUBJECT_ENCODING_DEFECT=CONFIRMED`; `AFFECTED_SUBJECTS=5`; `SUBJECT_CODES_PRESERVED=PASS`; `UNICODE_WRITE_STRATEGY=PASS`. Repair is not executed in production.
+- `FULL_POPULATION_REHEARSAL=PASS`: certified PostgreSQL 17 synthetic rehearsal from R1 verified one transaction, separate admin/teacher identities, 5 courses, 5 assignments, 8 parallels, 8 cohorts, zero enrollments, and rollback.
+- `ACADEMIC_PERIOD_CONTRACT=PASS`; `PERIOD_STATUS=draft`; `ALG_NORMALIZATION_SAFE=PASS`; `EXPECTED_COHORTS=8`.
+- `CURRENT_PRODUCTION_STATE=NOT_RUN`; `TEACHER_USERNAME_CONFLICT=NOT_RUN`; `POPULATION_OBJECT_CONFLICTS=NOT_RUN`; `PRODUCTION_ACTIVITY_RISK=UNKNOWN`. These are mandatory fresh read-only gates before 5B.1B.
+- `NEW_PRE_POPULATION_BACKUP_REQUIRED=YES`; `TRANSACTION_PLAN=PASS`; `ROLLBACK_PLAN=PASS`.
+- `PRODUCTION_WRITES=0`; `PRODUCTION_MIGRATIONS=0`; `BACKFILL=0`; `SECRETS=0`; `PII=0`; `GPS_COORDINATES=0`.
+
+`READY_FOR_018A5B1B_REVIEW=NO` until the required fresh production read-only gates and new backup are completed.
+
+R2 update: `PUBLIC_BACKUP_FOUND=PASS`; `PUBLIC_BACKUP_SIZE=782567`; `PUBLIC_BACKUP_SHA=PASS`. `TEACHER_PARALLEL_ISOLATION=FAIL`; this is an independent architectural execution block. No production action occurred.

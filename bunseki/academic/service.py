@@ -19,15 +19,22 @@ class AcademicService:
     def create_subject(self, code, name): return self._one("INSERT INTO subjects(code,name) VALUES(%s,%s) RETURNING id", (code,name))[0]
     def create_course(self, subject_id, period_id, code, name): return self._one("INSERT INTO courses(subject_id,academic_period_id,code,name) VALUES(%s,%s,%s,%s) RETURNING id",(subject_id,period_id,code,name))[0]
     def assign_teacher(self, teacher_id, course_id): self._one("INSERT INTO teacher_courses(teacher_id,course_id) VALUES(%s,%s) RETURNING teacher_id",(teacher_id,course_id))
+    def assign_teacher_to_parallel(self, teacher_id, parallel_id):
+        row=self._one("SELECT p.course_id FROM parallels p WHERE p.id=%s",(parallel_id,))
+        if not row or not self._one("SELECT 1 FROM teacher_courses WHERE teacher_id=%s AND course_id=%s",(teacher_id,row[0])): raise ValidationError("teacher is not assigned to parallel course")
+        return self._one("INSERT INTO teacher_parallels(teacher_id,parallel_id) VALUES(%s,%s) RETURNING teacher_id",(teacher_id,parallel_id))[0]
+    def revoke_teacher_from_parallel(self, teacher_id, parallel_id):
+        row=self._one("DELETE FROM teacher_parallels WHERE teacher_id=%s AND parallel_id=%s RETURNING teacher_id",(teacher_id,parallel_id))
+        return row[0] if row else None
     def create_parallel(self, course_id, code, name=None): return self._one("INSERT INTO parallels(course_id,code,name) VALUES(%s,%s,%s) RETURNING id",(course_id,code,name or code))[0]
     def create_cohort(self, course_id, code, name): return self._one("INSERT INTO cohorts(course_id,code,name) VALUES(%s,%s,%s) RETURNING id",(course_id,code,name))[0]
     def enroll(self, student_user_id, course_id, parallel_id, cohort_id, source="manual"):
         return self._one("INSERT INTO enrollments(student_user_id,course_id,parallel_id,cohort_id,source) VALUES(%s,%s,%s,%s,%s) RETURNING id",(student_user_id,course_id,parallel_id,cohort_id,source))[0]
     def teacher_can_access_enrollment(self, teacher_user_id, enrollment_id):
-        return bool(self._one("SELECT 1 FROM enrollments e JOIN teacher_courses tc ON tc.course_id=e.course_id JOIN teachers t ON t.id=tc.teacher_id WHERE t.user_id=%s AND e.id=%s",(teacher_user_id,enrollment_id)))
+        return bool(self._one("SELECT 1 FROM enrollments e JOIN teacher_parallels tp ON tp.parallel_id=e.parallel_id JOIN teachers t ON t.id=tp.teacher_id WHERE t.user_id=%s AND e.id=%s",(teacher_user_id,enrollment_id)))
     def get_teacher_students(self, teacher_user_id):
         with self.connection.cursor() as c:
-            c.execute("SELECT DISTINCT e.student_user_id FROM enrollments e JOIN teacher_courses tc ON tc.course_id=e.course_id JOIN teachers t ON t.id=tc.teacher_id WHERE t.user_id=%s ORDER BY 1",(teacher_user_id,)); return [r[0] for r in c.fetchall()]
+            c.execute("SELECT DISTINCT e.student_user_id FROM enrollments e JOIN teacher_parallels tp ON tp.parallel_id=e.parallel_id JOIN teachers t ON t.id=tp.teacher_id WHERE t.user_id=%s ORDER BY 1",(teacher_user_id,)); return [r[0] for r in c.fetchall()]
     def get_teacher_courses(self, teacher_user_id):
         with self.connection.cursor() as c:
             c.execute("SELECT c.id FROM courses c JOIN teacher_courses tc ON tc.course_id=c.id JOIN teachers t ON t.id=tc.teacher_id WHERE t.user_id=%s ORDER BY 1",(teacher_user_id,)); return [r[0] for r in c.fetchall()]
@@ -39,7 +46,7 @@ class AcademicService:
             c.execute("SELECT i.id FROM interactions i JOIN enrollments e ON e.student_user_id=i.user_id WHERE e.cohort_id=%s ORDER BY i.id",(cohort_id,)); return [r[0] for r in c.fetchall()]
     def get_teacher_interactions(self, teacher_user_id):
         with self.connection.cursor() as c:
-            c.execute("SELECT i.id FROM interactions i JOIN enrollments e ON e.student_user_id=i.user_id JOIN teacher_courses tc ON tc.course_id=e.course_id JOIN teachers t ON t.id=tc.teacher_id WHERE t.user_id=%s",(teacher_user_id,)); return [r[0] for r in c.fetchall()]
+            c.execute("SELECT i.id FROM interactions i JOIN enrollments e ON e.student_user_id=i.user_id JOIN teacher_parallels tp ON tp.parallel_id=e.parallel_id JOIN teachers t ON t.id=tp.teacher_id WHERE t.user_id=%s",(teacher_user_id,)); return [r[0] for r in c.fetchall()]
     def bulk_enroll(self, context, rows):
         required={"student_code","first_name","last_name","email","username"}
         errors=[]; seen_usernames=set(); seen_emails=set(); seen_codes=set()
