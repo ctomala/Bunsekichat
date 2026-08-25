@@ -5155,6 +5155,194 @@ def admin_page(user):
         x3.download_button("🎮 CSV pruebas", filtered_quizzes.to_csv(index=False).encode('utf-8-sig'), "pruebas_bunsekichat.csv", "text/csv", use_container_width=True)
         return
 
+        # ============================================================
+# BUNSEKI-018A.5B.1C
+# Teacher scoped dashboard / deny-by-default
+# ============================================================
+
+def _teacher_record_for_user(user_id):
+    """Devuelve el docente asociado al usuario autenticado."""
+    if not user_id:
+        return None
+
+    return fetchone(
+        """
+        SELECT id, user_id
+        FROM teachers
+        WHERE user_id=%s
+        """,
+        (user_id,),
+    )
+
+
+def _teacher_scope_summary(user_id):
+    """
+    Resumen restringido exclusivamente a las asignaciones
+    del docente autenticado.
+    """
+    teacher = _teacher_record_for_user(user_id)
+
+    if not teacher:
+        return None
+
+    teacher_id = teacher["id"]
+
+    courses = fetchone(
+        """
+        SELECT COUNT(*) AS total
+        FROM teacher_courses
+        WHERE teacher_id=%s
+        """,
+        (teacher_id,),
+    ) or {}
+
+    parallels = fetchone(
+        """
+        SELECT COUNT(*) AS total
+        FROM teacher_parallels
+        WHERE teacher_id=%s
+        """,
+        (teacher_id,),
+    ) or {}
+
+    enrollments = fetchone(
+        """
+        SELECT COUNT(*) AS total
+        FROM enrollments e
+        WHERE EXISTS (
+            SELECT 1
+            FROM teacher_parallels tp
+            WHERE tp.teacher_id=%s
+              AND tp.parallel_id=e.parallel_id
+        )
+        """,
+        (teacher_id,),
+    ) or {}
+
+    return {
+        "teacher_id": teacher_id,
+        "courses": int(courses.get("total") or 0),
+        "parallels": int(parallels.get("total") or 0),
+        "enrollments": int(enrollments.get("total") or 0),
+    }
+
+
+def teacher_can_access_course(user_id, course_id):
+    """Deny-by-default para recursos asociados a un curso."""
+    if not user_id or not course_id:
+        return False
+
+    row = fetchone(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM teachers t
+            JOIN teacher_courses tc
+              ON tc.teacher_id=t.id
+            WHERE t.user_id=%s
+              AND tc.course_id=%s
+        ) AS allowed
+        """,
+        (user_id, course_id),
+    ) or {}
+
+    return bool(row.get("allowed"))
+
+
+def teacher_can_access_parallel(user_id, parallel_id):
+    """Deny-by-default para recursos asociados a un paralelo."""
+    if not user_id or not parallel_id:
+        return False
+
+    row = fetchone(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM teachers t
+            JOIN teacher_parallels tp
+              ON tp.teacher_id=t.id
+            WHERE t.user_id=%s
+              AND tp.parallel_id=%s
+        ) AS allowed
+        """,
+        (user_id, parallel_id),
+    ) or {}
+
+    return bool(row.get("allowed"))
+
+
+def teacher_scoped_page(user):
+    """
+    Dashboard exclusivo para docentes.
+    Nunca llama admin_page() y nunca usa métricas globales.
+    """
+
+    role = str(user.get("role", "")).lower() if user else ""
+
+    if role not in {"teacher", "docente"}:
+        st.error("Acceso docente no autorizado.")
+        st.stop()
+
+    scope = _teacher_scope_summary(user.get("id"))
+
+    if not scope:
+        st.error(
+            "El usuario docente no posee una asignación "
+            "académica válida."
+        )
+        st.stop()
+
+    with st.sidebar:
+        st.markdown("## BunsekiChat")
+        st.caption("Panel docente")
+        st.success("🔒 Acceso limitado a tus asignaciones")
+
+        st.markdown("---")
+
+        st.write(f"**Usuario:** {user.get('username', 'Docente')}")
+        st.write(f"**Cursos asignados:** {scope['courses']}")
+        st.write(f"**Paralelos asignados:** {scope['parallels']}")
+
+    st.title("📊 Dashboard docente")
+    st.caption(
+        "Vista limitada exclusivamente a tus cursos "
+        "y paralelos asignados."
+    )
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.metric("Cursos asignados", scope["courses"])
+
+    with c2:
+        st.metric("Paralelos asignados", scope["parallels"])
+
+    with c3:
+        st.metric(
+            "Estudiantes matriculados",
+            scope["enrollments"],
+        )
+
+    st.markdown("---")
+
+    if scope["enrollments"] == 0:
+        st.info(
+            "Actualmente no existen estudiantes matriculados "
+            "en tus paralelos."
+        )
+
+    st.subheader("🔐 Alcance de seguridad")
+
+    st.success(
+        "Tu sesión está restringida a las asignaciones "
+        "registradas para este docente."
+    )
+
+    st.caption(
+        "Las métricas globales y los estudiantes de otros "
+        "docentes no están disponibles en esta vista."
+    )
+
 setup_database_once(DATABASE_SCHEMA_VERSION)
 session_guard()
 
@@ -5178,7 +5366,13 @@ else:
             show_status=False
         )
 
-    if u.get('role') in ['admin', 'teacher', 'docente']:
-        admin_page(u)
-    else:
-        student_page(u)
+role = str(u.get("role", "")).lower()
+
+if role == "admin":
+    admin_page(u)
+
+elif role in {"teacher", "docente"}:
+    teacher_scoped_page(u)
+
+else:
+    student_page(u)
