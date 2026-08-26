@@ -1064,22 +1064,11 @@ def execute(sql, params=None, returning=False):
         c.close()
 
 
-def safe_password(password: str) -> bytes:
-    password = password or ""
-    return hashlib.sha256(password.encode("utf-8")).digest()
-
-
-def hash_password(password: str) -> str:
-    import bcrypt as bcrypt_lib
-    return bcrypt_lib.hashpw(safe_password(password), bcrypt_lib.gensalt()).decode("utf-8")
-
-
-def verify_password(password: str, password_hash: str) -> bool:
-    try:
-        import bcrypt as bcrypt_lib
-        return bcrypt_lib.checkpw(safe_password(password), password_hash.encode("utf-8"))
-    except Exception:
-        return False
+from bunseki.security.passwords import (
+    hash_password,
+    safe_password,
+    verify_password,
+)
 
 
 def init_db():

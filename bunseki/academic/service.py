@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import secrets
 import string
-import bcrypt
-
+from bunseki.security.passwords import hash_password
 
 class ValidationError(ValueError): pass
 class AuthorizationDenied(PermissionError): pass
@@ -68,7 +67,7 @@ class AcademicService:
             created=[]
             for row in rows:
                 password="".join(secrets.choice(string.ascii_letters+string.digits) for _ in range(16))
-                hashed=bcrypt.hashpw(password.encode(),bcrypt.gensalt()).decode()
+                hashed = hash_password(password)
                 c.execute("INSERT INTO users(username,password_hash,role,active,created_at,password_temporal,primer_ingreso) VALUES(%s,%s,%s,true,now()::text,true,true) RETURNING id",(row["username"].strip().lower(),hashed,"student")); uid=c.fetchone()[0]
                 c.execute("INSERT INTO profiles(user_id,first_names,last_names,cedula,correo) VALUES(%s,%s,%s,%s,%s)",(uid,row["first_name"],row["last_name"],row["student_code"],row["email"]))
                 c.execute("INSERT INTO enrollments(student_user_id,course_id,parallel_id,cohort_id,source) VALUES(%s,%s,%s,%s,%s)",(uid,context["course_id"],context["parallel_id"],context["cohort_id"],"bulk_import")); created.append({"user_id":uid,"username":row["username"],"temporary_password":password})
