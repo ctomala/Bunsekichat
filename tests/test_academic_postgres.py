@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import psycopg2
 import pytest
-from bunseki.academic import AcademicService, ValidationError
+from bunseki.academic import AcademicService, CredentialAwareEnrollmentOrchestrator, CredentialCapture, CredentialCaptureError, ValidationError
 from bunseki.security.passwords import verify_password
 
 DSN=os.environ.get("BUNSEKI_TEST_DATABASE_URL")
@@ -169,3 +169,69 @@ def test_bulk_savepoint_preserves_outer_transaction_on_failure(db):
     finally:
         db.rollback()
         db.autocommit=True
+
+
+def orchestration_context(db):
+    service=AcademicService(db); a,b,pa,pb,ca,cb=context(service)
+    teacher=service.create_teacher(1); service.assign_teacher(teacher,a); service.assign_teacher_to_parallel(teacher,pa)
+    return service,1,{"course_id":a,"parallel_id":pa,"cohort_id":ca}
+
+
+def orchestration_rows(prefix):
+    return [{"student_code":f"{prefix}-CODE-{i}","first_name":"Synthetic","last_name":"Student","email":f"{prefix}-{i}@example.test","username":f"{prefix}-user-{i}"} for i in (1,2)]
+
+
+def test_orchestrator_validator_sees_uncommitted_rows_then_commits(db,tmp_path):
+    service,teacher,ctx=orchestration_context(db); rows=orchestration_rows("hook-success"); vault=CredentialCapture(destination=tmp_path/"private",repository_root=tmp_path/"repository")
+    db.autocommit=False; seen={}
+    try:
+        def validator(state):
+            assert state.connection is db and state.credential_count==2 and len(state.created_user_ids)==2
+            with db.cursor() as c: c.execute("SELECT count(*) FROM users WHERE id=ANY(%s)",(list(state.created_user_ids),)); seen["local"]=c.fetchone()[0]
+            other=psycopg2.connect(DSN)
+            try:
+                with other.cursor() as c: c.execute("SELECT count(*) FROM users WHERE id=ANY(%s)",(list(state.created_user_ids),)); seen["other"]=c.fetchone()[0]
+            finally: other.close()
+        receipt=CredentialAwareEnrollmentOrchestrator(vault).enroll_and_capture(service,ctx,rows,teacher_user_id=teacher,manifest_sha256="a"*64,pre_capture_validator=validator)
+        assert seen=={"local":2,"other":0}
+        assert [service._one(f"SELECT count(*) FROM {t}")[0] for t in ("users","profiles","enrollments")]==[6,2,2]
+        vault.destroy(receipt.artifact_path)
+    finally:
+        db.rollback(); db.autocommit=True
+
+
+def test_orchestrator_validator_failure_rolls_back_real_rows(db,tmp_path):
+    service,teacher,ctx=orchestration_context(db); rows=orchestration_rows("hook-fail"); vault=CredentialCapture(destination=tmp_path/"private",repository_root=tmp_path/"repository")
+    db.autocommit=False
+    try:
+        with pytest.raises(RuntimeError):
+            CredentialAwareEnrollmentOrchestrator(vault).enroll_and_capture(service,ctx,rows,teacher_user_id=teacher,manifest_sha256="b"*64,pre_capture_validator=lambda state: (_ for _ in ()).throw(RuntimeError("synthetic validator failure")))
+        assert [service._one(f"SELECT count(*) FROM {t}")[0] for t in ("users","profiles","enrollments")]==[4,0,0]
+        assert not list((tmp_path/"private").glob("*.bunseki-credentials"))
+    finally:
+        db.rollback(); db.autocommit=True
+
+
+def test_orchestrator_capture_failure_rolls_back_real_rows(db):
+    service,teacher,ctx=orchestration_context(db); rows=orchestration_rows("capture-fail")
+    class FailingCapture:
+        def capture(self,*args,**kwargs): raise CredentialCaptureError("synthetic capture failure")
+        def destroy(self,*args,**kwargs): raise AssertionError("no artifact should exist")
+    db.autocommit=False
+    try:
+        with pytest.raises(CredentialCaptureError):
+            CredentialAwareEnrollmentOrchestrator(FailingCapture()).enroll_and_capture(service,ctx,rows,teacher_user_id=teacher,manifest_sha256="c"*64,pre_capture_validator=lambda state: None)
+        assert [service._one(f"SELECT count(*) FROM {t}")[0] for t in ("users","profiles","enrollments")]==[4,0,0]
+    finally:
+        db.rollback(); db.autocommit=True
+
+
+def test_orchestrator_no_hook_commits_real_rows(db,tmp_path):
+    service,teacher,ctx=orchestration_context(db); rows=orchestration_rows("no-hook"); vault=CredentialCapture(destination=tmp_path/"private",repository_root=tmp_path/"repository")
+    db.autocommit=False
+    try:
+        receipt=CredentialAwareEnrollmentOrchestrator(vault).enroll_and_capture(service,ctx,rows,teacher_user_id=teacher,manifest_sha256="d"*64)
+        assert [service._one(f"SELECT count(*) FROM {t}")[0] for t in ("users","profiles","enrollments")]==[6,2,2]
+        vault.destroy(receipt.artifact_path)
+    finally:
+        db.rollback(); db.autocommit=True

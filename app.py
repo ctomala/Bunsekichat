@@ -60,10 +60,14 @@ load_dotenv(dotenv_path=ENV_PATH)
 
 APP_NAME = "BunsekiChat"
 # Supabase/PostgreSQL: usar DATABASE_URL en Streamlit Secrets o .env
-try:
-    DATABASE_URL = st.secrets["DATABASE_URL"]
-except Exception:
-    DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+TEST_DATABASE_URL = os.getenv("BUNSEKI_TEST_DATABASE_URL", "").strip()
+if TEST_DATABASE_URL:
+    DATABASE_URL = TEST_DATABASE_URL
+else:
+    try:
+        DATABASE_URL = st.secrets["DATABASE_URL"]
+    except Exception:
+        DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 DB_LOCK = threading.RLock()
 DATABASE_SCHEMA_VERSION = "2026-06-27-cohort-enrollment-v2"
@@ -2510,6 +2514,282 @@ def get_plan_topics(plan_id=None):
     """)
 
 
+QUESTION_BANK_BLOOM_LEVELS = ("Recordar", "Comprender", "Aplicar", "Analizar", "Evaluar", "Crear")
+QUESTION_BANK_DIFFICULTIES = ("Básico", "Intermedio", "Avanzado")
+
+
+def get_plan_topic(plan_topic_id):
+    """Return one curricular topic; this is the primary question-bank relation."""
+    return fetchone("SELECT * FROM plan_topics WHERE id=%s", (plan_topic_id,))
+
+
+def get_question_bank_items(plan_id=None, plan_topic_id=None, status=None):
+    clauses, params = [], []
+    if plan_id is not None:
+        clauses.append("plan_id=%s")
+        params.append(plan_id)
+    if plan_topic_id is not None:
+        clauses.append("plan_topic_id=%s")
+        params.append(plan_topic_id)
+    if status is not None:
+        clauses.append("status=%s")
+        params.append(status)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    return fetchall("SELECT * FROM question_bank_items" + where + " ORDER BY id DESC", tuple(params))
+
+
+def validate_question_bank_payload(payload):
+    """Validate a teacher-reviewable multiple-choice item without changing its curriculum."""
+    if not isinstance(payload, dict):
+        raise ValueError("La pregunta debe ser un objeto JSON.")
+    question = normalize_spaces(payload.get("question", ""))
+    options = [normalize_spaces(value) for value in (payload.get("options") or [])]
+    options = [value for value in options if value]
+    correct_answer = normalize_spaces(payload.get("correct_answer", ""))
+    bloom_level = normalize_spaces(payload.get("bloom_level", ""))
+    difficulty_level = normalize_spaces(payload.get("difficulty_level", ""))
+    if not question:
+        raise ValueError("La pregunta no puede estar vacía.")
+    if len(options) != 4 or len(set(options)) != 4:
+        raise ValueError("Cada pregunta debe tener exactamente cuatro opciones distintas.")
+    if correct_answer not in options:
+        raise ValueError("La respuesta correcta debe pertenecer a las cuatro opciones.")
+    if bloom_level not in QUESTION_BANK_BLOOM_LEVELS:
+        raise ValueError("Nivel Bloom inválido.")
+    if difficulty_level not in QUESTION_BANK_DIFFICULTIES:
+        raise ValueError("Dificultad inválida.")
+    return {
+        "question": question,
+        "options": options,
+        "correct_answer": correct_answer,
+        "explanation": normalize_spaces(payload.get("explanation", "")),
+        "bloom_level": bloom_level,
+        "difficulty_level": difficulty_level,
+    }
+
+
+def create_question_bank_drafts(teacher_id, plan_topic_id, drafts, ai_model):
+    topic_context = get_plan_topic(plan_topic_id)
+    if not topic_context:
+        raise ValueError("No se encontró el tema curricular seleccionado.")
+    if not isinstance(drafts, list) or not drafts:
+        raise ValueError("No se recibieron preguntas para guardar.")
+    created = []
+    for draft in drafts:
+        item = validate_question_bank_payload(draft)
+        row = execute("""
+            INSERT INTO question_bank_items(
+                plan_id, plan_topic_id, created_by, question, options_json, correct_answer,
+                explanation, unit_name, topic, subtopic, learning_outcome, bloom_level,
+                difficulty_level, status, source, ai_model, created_at
+            ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft','ai',%s,%s)
+            RETURNING *
+        """, (
+            topic_context["plan_id"], topic_context["id"], teacher_id, item["question"],
+            json.dumps(item["options"], ensure_ascii=False), item["correct_answer"], item["explanation"],
+            topic_context.get("unit_name"), topic_context["topic"], topic_context.get("subtopic"),
+            topic_context.get("learning_outcome"), item["bloom_level"], item["difficulty_level"], ai_model, now(),
+        ), returning=True)
+        created.append(row)
+    return created
+
+
+def update_question_bank_item(item_id, payload):
+    item = validate_question_bank_payload(payload)
+    return execute("""
+        UPDATE question_bank_items
+        SET question=%s, options_json=%s, correct_answer=%s, explanation=%s,
+            bloom_level=%s, difficulty_level=%s, updated_at=%s
+        WHERE id=%s AND status='draft'
+        RETURNING *
+    """, (
+        item["question"], json.dumps(item["options"], ensure_ascii=False), item["correct_answer"],
+        item["explanation"], item["bloom_level"], item["difficulty_level"], now(), item_id,
+    ), returning=True)
+
+
+def approve_question_bank_item(item_id, approved_by):
+    return execute("""
+        UPDATE question_bank_items
+        SET status='approved', approved_by=%s, approved_at=%s, updated_at=%s
+        WHERE id=%s AND status='draft'
+        RETURNING *
+    """, (approved_by, now(), now(), item_id), returning=True)
+
+
+def reject_question_bank_item(item_id):
+    return execute("""
+        UPDATE question_bank_items SET status='rejected', updated_at=%s
+        WHERE id=%s AND status='draft' RETURNING *
+    """, (now(), item_id), returning=True)
+
+
+def delete_question_bank_item(item_id):
+    """Soft delete only: teacher actions must never physically delete bank items."""
+    return execute("""
+        UPDATE question_bank_items SET status='deleted', updated_at=%s
+        WHERE id=%s AND status IN ('draft', 'rejected') RETURNING *
+    """, (now(), item_id), returning=True)
+
+
+def generate_topic_question_drafts(teacher_id, plan_topic_id, difficulty="Intermedio", n_questions=10):
+    """Generate and persist AI drafts for one selected curricular topic, never for a student quiz."""
+    if difficulty not in QUESTION_BANK_DIFFICULTIES:
+        raise ValueError("Dificultad inválida.")
+    n_questions = int(n_questions)
+    if not 1 <= n_questions <= 20:
+        raise ValueError("El número de preguntas debe estar entre 1 y 20.")
+    topic_context = get_plan_topic(plan_topic_id)
+    if not topic_context:
+        raise ValueError("No se encontró el tema curricular seleccionado.")
+    client = ai_client()
+    if not client:
+        raise RuntimeError("No hay un modelo Gemini configurado para generar borradores.")
+    model = "gemini-2.5-flash"
+    prompt = f"""
+Eres diseñador de evaluación universitaria. Genera EXACTAMENTE {n_questions} preguntas de opción múltiple.
+Devuelve SOLO un arreglo JSON válido, sin markdown. Cada objeto debe tener: question, options,
+correct_answer, explanation, bloom_level, difficulty_level. options debe contener exactamente 4 textos
+distintos y correct_answer debe coincidir exactamente con una opción.
+
+ALINEACIÓN OBLIGATORIA: no cambies ni inventes otro tema. Cada pregunta debe comprobar el resultado de
+aprendizaje dentro del tema curricular indicado y respetar Bloom y dificultad solicitados.
+Unidad: {topic_context.get('unit_name') or ''}
+Tema obligatorio: {topic_context.get('topic') or ''}
+Subtema: {topic_context.get('subtopic') or ''}
+Resultado de aprendizaje: {topic_context.get('learning_outcome') or ''}
+Bloom permitido: {topic_context.get('bloom_level') or ''} (usa uno de: {', '.join(QUESTION_BANK_BLOOM_LEVELS)})
+Palabras clave: {topic_context.get('keywords') or ''}
+Dificultad obligatoria: {difficulty}
+"""
+    try:
+        response = client.models.generate_content(model=model, contents=prompt)
+        generated = _safe_json_loads(response.text, [])
+    except Exception as exc:
+        raise RuntimeError("No se pudieron generar los borradores curriculares.") from exc
+    if not isinstance(generated, list) or len(generated) != n_questions:
+        raise ValueError("Gemini debe devolver exactamente el número de preguntas solicitado.")
+    normalized = []
+    for draft in generated:
+        draft = dict(draft) if isinstance(draft, dict) else {}
+        # Topic provenance is deliberately copied from plan_topic, never accepted from Gemini.
+        draft["difficulty_level"] = difficulty
+        if not draft.get("bloom_level"):
+            draft["bloom_level"] = topic_context.get("bloom_level") or "Aplicar"
+        normalized.append(validate_question_bank_payload(draft))
+    return create_question_bank_drafts(teacher_id, plan_topic_id, normalized, model)
+
+
+def create_teacher_assessment(created_by, plan_id, title, academic_context=None):
+    context = academic_context or {}
+    if not normalize_spaces(title):
+        raise ValueError("La evaluación necesita un título.")
+    return execute("""INSERT INTO teacher_assessments(created_by,plan_id,title,subject,course_level,parallel,shift,cohort,status,created_at)
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s) RETURNING *""", (created_by, plan_id, normalize_spaces(title), context.get("subject"), context.get("course_level"), context.get("parallel"), context.get("shift"), context.get("cohort"), now()), returning=True)
+
+
+def get_teacher_assessments(created_by=None, status=None):
+    clauses, params = [], []
+    for field, value in (("created_by", created_by), ("status", status)):
+        if value is not None: clauses.append(field + "=%s"); params.append(value)
+    return fetchall("SELECT * FROM teacher_assessments" + (" WHERE " + " AND ".join(clauses) if clauses else "") + " ORDER BY id DESC", tuple(params))
+
+
+def get_teacher_assessment(assessment_id):
+    return fetchone("SELECT * FROM teacher_assessments WHERE id=%s", (assessment_id,))
+
+
+def get_teacher_assessment_items(assessment_id):
+    return fetchall("""SELECT tai.*, qbi.* FROM teacher_assessment_items tai JOIN question_bank_items qbi ON qbi.id=tai.question_bank_item_id
+        WHERE tai.assessment_id=%s ORDER BY tai.position""", (assessment_id,))
+
+
+def set_teacher_assessment_items(assessment_id, teacher_id, question_bank_item_ids):
+    assessment = get_teacher_assessment(assessment_id)
+    if not assessment or assessment["created_by"] != teacher_id or assessment["status"] != "draft":
+        raise ValueError("Solo el docente creador puede editar una evaluación en borrador.")
+    ids = list(dict.fromkeys(int(item_id) for item_id in question_bank_item_ids))
+    if ids:
+        approved = fetchall("SELECT id FROM question_bank_items WHERE id = ANY(%s) AND status='approved'", (ids,))
+        if {row["id"] for row in approved} != set(ids):
+            raise ValueError("Solo se pueden agregar preguntas aprobadas.")
+    execute("DELETE FROM teacher_assessment_items WHERE assessment_id=%s", (assessment_id,))
+    for position, item_id in enumerate(ids, 1):
+        execute("INSERT INTO teacher_assessment_items(assessment_id,question_bank_item_id,position) VALUES(%s,%s,%s)", (assessment_id, item_id, position))
+
+
+def publish_teacher_assessment(assessment_id, teacher_id):
+    assessment = get_teacher_assessment(assessment_id)
+    if not assessment or assessment["created_by"] != teacher_id or assessment["status"] != "draft": raise ValueError("La evaluación no se puede publicar.")
+    if not get_teacher_assessment_items(assessment_id): raise ValueError("No se puede publicar una evaluación sin preguntas.")
+    return execute("UPDATE teacher_assessments SET status='published', published_at=%s WHERE id=%s AND status='draft' RETURNING *", (now(), assessment_id), returning=True)
+
+
+def close_teacher_assessment(assessment_id, teacher_id):
+    assessment = get_teacher_assessment(assessment_id)
+    if not assessment or assessment["created_by"] != teacher_id or assessment["status"] != "published": raise ValueError("La evaluación no se puede cerrar.")
+    return execute("UPDATE teacher_assessments SET status='closed', closed_at=%s WHERE id=%s AND status='published' RETURNING *", (now(), assessment_id), returning=True)
+
+
+def assessment_matches_academic_context(assessment, context):
+    return all(not assessment.get(key) or str(assessment.get(key)) == str((context or {}).get(key) or "") for key in ("subject", "course_level", "parallel", "shift", "cohort"))
+
+
+def get_student_teacher_assessments(academic_context):
+    rows = get_teacher_assessments(status="published")
+    return [row for row in rows if assessment_matches_academic_context(row, academic_context)]
+
+
+def start_teacher_assessment_attempt(user_id, teacher_assessment_id, academic_context=None):
+    assessment = get_teacher_assessment(teacher_assessment_id)
+    if not assessment or assessment["status"] != "published": raise ValueError("La evaluación no está publicada.")
+    if not assessment_matches_academic_context(assessment, academic_context): raise ValueError("La evaluación no corresponde a tu contexto académico.")
+    existing = fetchone("SELECT * FROM adaptive_quizzes WHERE user_id=%s AND teacher_assessment_id=%s", (user_id, teacher_assessment_id))
+    if existing: return existing
+    items = get_teacher_assessment_items(teacher_assessment_id)
+    if not items or any(item.get("status") != "approved" for item in items): raise ValueError("La evaluación contiene preguntas no aprobadas.")
+    quiz = execute("""INSERT INTO adaptive_quizzes(user_id,plan_id,title,quiz_type,source_topic,difficulty,subject,course_level,parallel,shift,cohort,question_count,status,teacher_assessment_id,created_at)
+        VALUES(%s,%s,%s,'bank_assessment',%s,'Banco aprobado',%s,%s,%s,%s,%s,%s,'generated',%s,%s) RETURNING *""", (user_id, assessment["plan_id"], assessment["title"], items[0].get("topic", ""), assessment.get("subject"), assessment.get("course_level"), assessment.get("parallel"), assessment.get("shift"), assessment.get("cohort"), len(items), teacher_assessment_id, now()), returning=True)
+    for item in items:
+        execute("""INSERT INTO adaptive_questions(quiz_id,question,options_json,correct_answer,position,topic,subtopic,difficulty_level,explanation,bloom_level,question_bank_item_id,plan_topic_id,learning_outcome)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (quiz["id"], item["question"], item["options_json"], item["correct_answer"], item["position"], item.get("topic"), item.get("subtopic"), item.get("difficulty_level"), item.get("explanation"), item.get("bloom_level"), item["question_bank_item_id"], item.get("plan_topic_id"), item.get("learning_outcome")))
+    return quiz
+
+
+def grade_teacher_assessment_attempt(quiz_id, answers, elapsed_seconds=None):
+    quiz, questions = load_adaptive_quiz(quiz_id)
+    if not quiz or quiz.get("quiz_type") != "bank_assessment": raise ValueError("Intento de banco inválido.")
+    correct = 0
+    for question in questions:
+        answer = (answers or {}).get(str(question["id"]), "")
+        ok = answer == question.get("correct_answer"); correct += int(ok)
+        execute("UPDATE adaptive_questions SET user_answer=%s,is_correct=%s,response_time_seconds=%s WHERE id=%s", (answer, ok, elapsed_seconds, question["id"]))
+    score = round(correct / max(1, len(questions)) * 100, 2)
+    return execute("UPDATE adaptive_quizzes SET score=%s,passed=%s,status='completed',completed_at=%s WHERE id=%s RETURNING *", (score, score >= 70, now(), quiz_id), returning=True)
+
+
+def get_teacher_assessment_results(assessment_id):
+    return fetchall("""SELECT q.user_id,q.score,q.status,q.completed_at,COUNT(aq.id) AS answered,COALESCE(SUM(CASE WHEN aq.is_correct THEN 1 ELSE 0 END),0) AS correct
+        FROM adaptive_quizzes q LEFT JOIN adaptive_questions aq ON aq.quiz_id=q.id WHERE q.teacher_assessment_id=%s GROUP BY q.id ORDER BY q.id DESC""", (assessment_id,))
+
+
+def get_teacher_assessment_item_results(assessment_id):
+    return fetchall("SELECT aq.* FROM adaptive_questions aq JOIN adaptive_quizzes q ON q.id=aq.quiz_id WHERE q.teacher_assessment_id=%s", (assessment_id,))
+
+
+def get_teacher_assessment_curricular_analytics(assessment_id):
+    rows = get_teacher_assessment_item_results(assessment_id)
+    result = {}
+    for label, field in (("topic", "topic"), ("learning_outcome", "learning_outcome"), ("bloom_level", "bloom_level"), ("difficulty_level", "difficulty_level")):
+        groups = {}
+        for row in rows:
+            key = row.get(field) or "Sin dato"; entry = groups.setdefault(key, {"total": 0, "correct": 0, "errors": 0})
+            if row.get("user_answer") is not None:
+                entry["total"] += 1; entry["correct"] += int(bool(row.get("is_correct"))); entry["errors"] += int(not bool(row.get("is_correct")))
+        result[label] = [{label: key, **value, "percentage": round(value["correct"] / max(1, value["total"]) * 100, 2)} for key, value in groups.items()]
+    return result
+
+
 def get_student_consultation_profile(uid: int) -> dict:
     rows = interactions(uid)
     user_rows = [r for r in rows if str(r.get("role","")).lower() == "user"]
@@ -3343,13 +3623,141 @@ def render_teacher_plan_manager(user):
 
     plan_id = st.selectbox("Ver temas de un plan", plans["id"].tolist(), format_func=lambda x: f"{x} · {plans.loc[plans['id']==x,'title'].iloc[0]}")
     topics_df = pd.DataFrame(get_plan_topics(int(plan_id)))
-    if not topics_df.empty:
-        st.dataframe(topics_df[["unit_name","topic","subtopic","learning_outcome","bloom_level","keywords"]], use_container_width=True, height=360)
+    if topics_df.empty:
+        st.info("Este plan todavía no tiene temas curriculares extraídos.")
+        return
+
+    st.dataframe(topics_df[["unit_name","topic","subtopic","learning_outcome","bloom_level","keywords"]], use_container_width=True, height=260)
+    selected_topic_id = st.selectbox(
+        "Selecciona un tema curricular",
+        topics_df["id"].tolist(),
+        format_func=lambda x: f"{x} · {topics_df.loc[topics_df['id'] == x, 'topic'].iloc[0]}",
+        key=f"question_bank_topic_{plan_id}",
+    )
+    selected_topic = get_plan_topic(int(selected_topic_id))
+    st.markdown("### Tema seleccionado")
+    st.write(f"**Unidad:** {selected_topic.get('unit_name') or '—'}")
+    st.write(f"**Tema:** {selected_topic.get('topic') or '—'}")
+    st.write(f"**Subtema:** {selected_topic.get('subtopic') or '—'}")
+    st.write(f"**Resultado de aprendizaje:** {selected_topic.get('learning_outcome') or '—'}")
+    st.write(f"**Bloom:** {selected_topic.get('bloom_level') or '—'}")
+
+    generation_left, generation_right = st.columns(2)
+    difficulty = generation_left.selectbox("Dificultad", QUESTION_BANK_DIFFICULTIES, index=1, key=f"question_bank_difficulty_{selected_topic_id}")
+    n_questions = generation_right.number_input("Número de preguntas", min_value=1, max_value=20, value=10, step=1, key=f"question_bank_count_{selected_topic_id}")
+    if st.button("Generar preguntas en borrador", use_container_width=True, key=f"generate_question_bank_{selected_topic_id}"):
+        try:
+            with st.spinner("Generando borradores curriculares con Gemini..."):
+                created = generate_topic_question_drafts(user["id"], int(selected_topic_id), difficulty, int(n_questions))
+            st.success(f"Se guardaron {len(created)} preguntas en borrador para revisión docente.")
+            st.rerun()
+        except (ValueError, RuntimeError) as exc:
+            st.error(str(exc))
+
+    st.markdown("### Preguntas en revisión")
+    drafts = get_question_bank_items(plan_topic_id=int(selected_topic_id), status="draft")
+    if not drafts:
+        st.caption("No hay borradores pendientes para este tema.")
+    for item in drafts:
+        item_id = item["id"]
+        with st.expander(f"Borrador #{item_id}: {item['question'][:90]}", expanded=False):
+            question = st.text_area("Pregunta", item["question"], key=f"qb_question_{item_id}")
+            raw_options = st.text_area("Opciones (JSON: arreglo de 4 textos)", item["options_json"], key=f"qb_options_{item_id}")
+            correct = st.text_input("Respuesta correcta", item["correct_answer"], key=f"qb_correct_{item_id}")
+            explanation = st.text_area("Explicación", item.get("explanation") or "", key=f"qb_explanation_{item_id}")
+            edit_left, edit_right = st.columns(2)
+            bloom = edit_left.selectbox("Bloom", QUESTION_BANK_BLOOM_LEVELS, index=QUESTION_BANK_BLOOM_LEVELS.index(item.get("bloom_level")) if item.get("bloom_level") in QUESTION_BANK_BLOOM_LEVELS else 2, key=f"qb_bloom_{item_id}")
+            item_difficulty = edit_right.selectbox("Dificultad", QUESTION_BANK_DIFFICULTIES, index=QUESTION_BANK_DIFFICULTIES.index(item.get("difficulty_level")) if item.get("difficulty_level") in QUESTION_BANK_DIFFICULTIES else 1, key=f"qb_difficulty_{item_id}")
+            action_save, action_approve, action_reject, action_delete = st.columns(4)
+            payload = {"question": question, "options": _safe_json_loads(raw_options, []), "correct_answer": correct, "explanation": explanation, "bloom_level": bloom, "difficulty_level": item_difficulty}
+            if action_save.button("Guardar cambios", key=f"qb_save_{item_id}"):
+                try:
+                    update_question_bank_item(item_id, payload)
+                    st.success("Cambios guardados.")
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
+            if action_approve.button("Aprobar", key=f"qb_approve_{item_id}"):
+                try:
+                    update_question_bank_item(item_id, payload)
+                    approve_question_bank_item(item_id, user["id"])
+                    st.success("Pregunta aprobada y enviada al banco validado.")
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
+            if action_reject.button("Rechazar", key=f"qb_reject_{item_id}"):
+                reject_question_bank_item(item_id)
+                st.info("Pregunta rechazada.")
+                st.rerun()
+            if action_delete.button("Eliminar", key=f"qb_delete_{item_id}"):
+                delete_question_bank_item(item_id)
+                st.info("Pregunta marcada como eliminada.")
+                st.rerun()
+
+    st.markdown("### Banco de preguntas aprobadas")
+    approved = get_question_bank_items(plan_id=int(plan_id), status="approved")
+    if not approved:
+        st.caption("Aún no hay preguntas aprobadas para este plan.")
+    else:
+        approved_df = pd.DataFrame(approved)
+        visible = [column for column in ["unit_name", "topic", "learning_outcome", "bloom_level", "difficulty_level", "question", "approved_at"] if column in approved_df.columns]
+        st.dataframe(approved_df[visible], use_container_width=True, height=300)
+
+    st.markdown("### Crear evaluación desde banco aprobado")
+    bank_items = get_question_bank_items(plan_id=int(plan_id), status="approved")
+    selected_bank_ids = st.multiselect("Preguntas aprobadas", [item["id"] for item in bank_items], format_func=lambda item_id: next(f"#{item_id} · {item['topic']} · {item['question'][:65]}" for item in bank_items if item["id"] == item_id), key=f"assessment_bank_items_{plan_id}")
+    assessment_title = st.text_input("Título de evaluación", key=f"assessment_title_{plan_id}")
+    if st.button("Crear evaluación", key=f"create_assessment_{plan_id}"):
+        plan = next((row for row in get_analytic_plans() if row["id"] == int(plan_id)), {})
+        context = {key: plan.get(key) for key in ("subject", "course_level", "parallel", "shift", "cohort")}
+        context["cohort"] = context.get("cohort") or plan.get("course")
+        try:
+            assessment = create_teacher_assessment(user["id"], int(plan_id), assessment_title, context)
+            set_teacher_assessment_items(assessment["id"], user["id"], selected_bank_ids)
+            st.success("Evaluación creada como borrador."); st.rerun()
+        except ValueError as exc: st.error(str(exc))
+    for assessment in get_teacher_assessments(created_by=user["id"]):
+        with st.expander(f"Evaluación #{assessment['id']} · {assessment['title']} · {assessment['status']}"):
+            st.write(f"Contexto: {assessment.get('subject') or '—'} · {assessment.get('course_level') or '—'} · {assessment.get('parallel') or '—'} · {assessment.get('shift') or '—'}")
+            st.write(f"Preguntas: {len(get_teacher_assessment_items(assessment['id']))}")
+            if assessment["status"] == "draft" and st.button("Publicar evaluación", key=f"publish_assessment_{assessment['id']}"):
+                try: publish_teacher_assessment(assessment["id"], user["id"]); st.success("Evaluación publicada."); st.rerun()
+                except ValueError as exc: st.error(str(exc))
+            if assessment["status"] == "published" and st.button("Cerrar evaluación", key=f"close_assessment_{assessment['id']}"):
+                try: close_teacher_assessment(assessment["id"], user["id"]); st.success("Evaluación cerrada."); st.rerun()
+                except ValueError as exc: st.error(str(exc))
+            if assessment["status"] in ("published", "closed"):
+                st.dataframe(pd.DataFrame(get_teacher_assessment_results(assessment["id"])), use_container_width=True)
+                analytics = get_teacher_assessment_curricular_analytics(assessment["id"])
+                for label, rows in analytics.items():
+                    st.caption(label); st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
 
 def render_student_adaptive_evaluation(user, prof, topic, subtopic):
     academic_context = academic_context_from_profile(prof)
     is_control_group = str(prof.get("research_group") or "").strip().lower() == "control"
+    st.markdown("### Evaluaciones del docente")
+    published_assessments = get_student_teacher_assessments(academic_context)
+    if not published_assessments:
+        st.caption("No hay evaluaciones docentes publicadas para tu contexto académico.")
+    for assessment in published_assessments:
+        if st.button(f"Iniciar: {assessment['title']}", key=f"start_teacher_assessment_{assessment['id']}"):
+            try:
+                st.session_state["teacher_assessment_quiz_id"] = start_teacher_assessment_attempt(user["id"], assessment["id"], academic_context)["id"]
+                st.rerun()
+            except ValueError as exc: st.error(str(exc))
+    bank_quiz_id = st.session_state.get("teacher_assessment_quiz_id")
+    if bank_quiz_id:
+        bank_quiz, bank_questions = load_adaptive_quiz(bank_quiz_id)
+        if bank_quiz and bank_quiz.get("status") == "generated":
+            answers = {}
+            for question in bank_questions:
+                answers[str(question["id"])] = st.radio(question["question"], _safe_json_loads(question["options_json"], []), key=f"bank_answer_{question['id']}")
+            if st.button("Enviar evaluación del docente", key=f"grade_teacher_assessment_{bank_quiz_id}"):
+                grade_teacher_assessment_attempt(bank_quiz_id, answers)
+                st.success("Evaluación enviada."); st.rerun()
+        elif bank_quiz:
+            st.info(f"Evaluación completada. Puntaje: {bank_quiz.get('score', 0)}%")
     st.markdown("""
     <div class='eval-hero'>
         <h2>🧠 Evaluación e investigación</h2>
@@ -5332,36 +5740,20 @@ def teacher_scoped_page(user):
         "docentes no están disponibles en esta vista."
     )
 
-setup_database_once(DATABASE_SCHEMA_VERSION)
-session_guard()
-
-if 'user' not in st.session_state:
-    login_page()
-else:
-    u = st.session_state.user
-
-    # =========================================
-    # GPS GLOBAL AUTOMÁTICO
-    # =========================================
-    capture_global_gps = True
-    if u.get('role') not in ['admin', 'teacher', 'docente']:
-        current_profile = get_profile(u['id'])
-        capture_global_gps = not is_official_profile(current_profile) or official_profile_ready(u, current_profile)
-    if capture_global_gps:
-        capture_browser_gps(
-            uid=u['id'],
-            page='global',
-            event_type='app_open',
-            show_status=False
-        )
-
-role = str(u.get("role", "")).lower()
-
-if role == "admin":
-    admin_page(u)
-
-elif role in {"teacher", "docente"}:
-    teacher_scoped_page(u)
-
-else:
-    student_page(u)
+if __name__ == "__main__":
+    setup_database_once(DATABASE_SCHEMA_VERSION)
+    session_guard()
+    if 'user' not in st.session_state:
+        login_page()
+    else:
+        u = st.session_state.user
+        capture_global_gps = True
+        if u.get('role') not in ['admin', 'teacher', 'docente']:
+            current_profile = get_profile(u['id'])
+            capture_global_gps = not is_official_profile(current_profile) or official_profile_ready(u, current_profile)
+        if capture_global_gps:
+            capture_browser_gps(uid=u['id'], page='global', event_type='app_open', show_status=False)
+        role = str(u.get("role", "")).lower()
+        if role == "admin": admin_page(u)
+        elif role in {"teacher", "docente"}: teacher_scoped_page(u)
+        else: student_page(u)
