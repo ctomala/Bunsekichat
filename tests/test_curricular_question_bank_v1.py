@@ -61,7 +61,7 @@ class CurricularQuestionBankTests(unittest.TestCase):
 
     def test_generated_question_is_saved_as_draft_with_curricular_traceability(self):
         qb, calls = question_bank_namespace(), []
-        qb["get_plan_topic"] = lambda _: topic_context()
+        qb["get_plan_topic_for_actor"] = lambda plan_topic_id, actor_id: topic_context()
         qb["execute"] = lambda sql, params, returning=False: calls.append((sql, params)) or {"status": "draft", "plan_topic_id": params[1]}
         created = qb["create_question_bank_drafts"](11, 7, [valid_payload()], "gemini-test")
         self.assertEqual(created[0]["status"], "draft")
@@ -80,11 +80,24 @@ class CurricularQuestionBankTests(unittest.TestCase):
 
     def test_approve_changes_status_and_reject_delete_cannot_appear_in_approved_query(self):
         qb, calls = question_bank_namespace(), []
+        qb["actor_can_manage_question_bank_item"] = lambda item_id, actor_id: True
         qb["execute"] = lambda sql, params, returning=False: calls.append((sql, params)) or {"status": "approved"}
         self.assertEqual(qb["approve_question_bank_item"](44, 11)["status"], "approved")
         self.assertIn("status='approved'", calls[0][0])
         self.assertIn("approved_by=%s", calls[0][0])
         self.assertIn("get_question_bank_items(plan_id=int(plan_id), status=\"approved\")", APP_PATH.read_text(encoding="utf-8"))
+
+    def test_question_bank_mutations_require_authorized_actor(self):
+        qb = question_bank_namespace()
+        qb["actor_can_manage_question_bank_item"] = lambda item_id, actor_id: False
+        with self.assertRaises(ValueError):
+            qb["update_question_bank_item"](44, valid_payload(), 11)
+        with self.assertRaises(ValueError):
+            qb["approve_question_bank_item"](44, 11)
+        with self.assertRaises(ValueError):
+            qb["reject_question_bank_item"](44, 11)
+        with self.assertRaises(ValueError):
+            qb["delete_question_bank_item"](44, 11)
 
     def test_invalid_correct_answer_is_rejected(self):
         payload = valid_payload()
@@ -95,7 +108,7 @@ class CurricularQuestionBankTests(unittest.TestCase):
     def test_teacher_generation_uses_one_topic_and_never_creates_adaptive_quiz(self):
         qb, prompts, payload = question_bank_namespace(), [], valid_payload()
         payload["topic"] = "Tema inventado por IA"
-        qb["get_plan_topic"] = lambda _: topic_context()
+        qb["get_plan_topic_for_actor"] = lambda plan_topic_id, actor_id: topic_context()
         qb["ai_client"] = lambda: type("Client", (), {"models": type("Models", (), {"generate_content": lambda _, model, contents: prompts.append(contents) or type("Response", (), {"text": json.dumps([payload])})()})()})()
         qb["create_question_bank_drafts"] = lambda teacher_id, plan_topic_id, drafts, ai_model: drafts
         generated = qb["generate_topic_question_drafts"](11, 7, "Intermedio", 1)

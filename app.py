@@ -2494,7 +2494,15 @@ def save_analytic_plan(title, course, teacher_id, filename, raw_text, parsed, ac
     return plan_id
 
 
-def get_analytic_plans():
+def get_analytic_plans(teacher_id=None):
+    if teacher_id is not None:
+        return fetchall("""
+            SELECT p.*, u.username AS teacher_username
+            FROM analytic_plans p
+            LEFT JOIN users u ON u.id=p.teacher_id
+            WHERE p.teacher_id=%s
+            ORDER BY p.id DESC
+        """, (teacher_id,))
     return fetchall("""
         SELECT p.*, u.username AS teacher_username
         FROM analytic_plans p
@@ -2521,6 +2529,29 @@ QUESTION_BANK_DIFFICULTIES = ("Básico", "Intermedio", "Avanzado")
 def get_plan_topic(plan_topic_id):
     """Return one curricular topic; this is the primary question-bank relation."""
     return fetchone("SELECT * FROM plan_topics WHERE id=%s", (plan_topic_id,))
+
+
+def actor_can_manage_plan(plan_id, actor_id):
+    row = fetchone("""
+        SELECT p.id
+        FROM analytic_plans p
+        JOIN users actor ON actor.id=%s
+        WHERE p.id=%s
+          AND (p.teacher_id=%s OR LOWER(COALESCE(actor.role,''))='admin')
+    """, (actor_id, plan_id, actor_id))
+    return bool(row)
+
+
+def get_plan_topic_for_actor(plan_topic_id, actor_id):
+    topic = get_plan_topic(plan_topic_id)
+    if not topic or not actor_can_manage_plan(topic["plan_id"], actor_id):
+        return None
+    return topic
+
+
+def actor_can_manage_question_bank_item(item_id, actor_id):
+    row = fetchone("SELECT plan_id FROM question_bank_items WHERE id=%s", (item_id,))
+    return bool(row and actor_can_manage_plan(row["plan_id"], actor_id))
 
 
 def get_question_bank_items(plan_id=None, plan_topic_id=None, status=None):
@@ -2569,7 +2600,7 @@ def validate_question_bank_payload(payload):
 
 
 def create_question_bank_drafts(teacher_id, plan_topic_id, drafts, ai_model):
-    topic_context = get_plan_topic(plan_topic_id)
+    topic_context = get_plan_topic_for_actor(plan_topic_id, teacher_id)
     if not topic_context:
         raise ValueError("No se encontró el tema curricular seleccionado.")
     if not isinstance(drafts, list) or not drafts:
@@ -2594,7 +2625,9 @@ def create_question_bank_drafts(teacher_id, plan_topic_id, drafts, ai_model):
     return created
 
 
-def update_question_bank_item(item_id, payload):
+def update_question_bank_item(item_id, payload, actor_id):
+    if not actor_can_manage_question_bank_item(item_id, actor_id):
+        raise ValueError("No tienes autorización para modificar esta pregunta.")
     item = validate_question_bank_payload(payload)
     return execute("""
         UPDATE question_bank_items
@@ -2609,6 +2642,8 @@ def update_question_bank_item(item_id, payload):
 
 
 def approve_question_bank_item(item_id, approved_by):
+    if not actor_can_manage_question_bank_item(item_id, approved_by):
+        raise ValueError("No tienes autorización para aprobar esta pregunta.")
     return execute("""
         UPDATE question_bank_items
         SET status='approved', approved_by=%s, approved_at=%s, updated_at=%s
@@ -2617,15 +2652,19 @@ def approve_question_bank_item(item_id, approved_by):
     """, (approved_by, now(), now(), item_id), returning=True)
 
 
-def reject_question_bank_item(item_id):
+def reject_question_bank_item(item_id, actor_id):
+    if not actor_can_manage_question_bank_item(item_id, actor_id):
+        raise ValueError("No tienes autorización para rechazar esta pregunta.")
     return execute("""
         UPDATE question_bank_items SET status='rejected', updated_at=%s
         WHERE id=%s AND status='draft' RETURNING *
     """, (now(), item_id), returning=True)
 
 
-def delete_question_bank_item(item_id):
+def delete_question_bank_item(item_id, actor_id):
     """Soft delete only: teacher actions must never physically delete bank items."""
+    if not actor_can_manage_question_bank_item(item_id, actor_id):
+        raise ValueError("No tienes autorización para eliminar esta pregunta.")
     return execute("""
         UPDATE question_bank_items SET status='deleted', updated_at=%s
         WHERE id=%s AND status IN ('draft', 'rejected') RETURNING *
@@ -2639,7 +2678,7 @@ def generate_topic_question_drafts(teacher_id, plan_topic_id, difficulty="Interm
     n_questions = int(n_questions)
     if not 1 <= n_questions <= 20:
         raise ValueError("El número de preguntas debe estar entre 1 y 20.")
-    topic_context = get_plan_topic(plan_topic_id)
+    topic_context = get_plan_topic_for_actor(plan_topic_id, teacher_id)
     if not topic_context:
         raise ValueError("No se encontró el tema curricular seleccionado.")
     client = ai_client()
@@ -2682,6 +2721,8 @@ Dificultad obligatoria: {difficulty}
 
 def create_teacher_assessment(created_by, plan_id, title, academic_context=None):
     context = academic_context or {}
+    if not actor_can_manage_plan(plan_id, created_by):
+        raise ValueError("No tienes autorización para crear una evaluación con este plan analítico.")
     if not normalize_spaces(title):
         raise ValueError("La evaluación necesita un título.")
     return execute("""INSERT INTO teacher_assessments(created_by,plan_id,title,subject,course_level,parallel,shift,cohort,status,created_at)
@@ -2710,9 +2751,12 @@ def set_teacher_assessment_items(assessment_id, teacher_id, question_bank_item_i
         raise ValueError("Solo el docente creador puede editar una evaluación en borrador.")
     ids = list(dict.fromkeys(int(item_id) for item_id in question_bank_item_ids))
     if ids:
-        approved = fetchall("SELECT id FROM question_bank_items WHERE id = ANY(%s) AND status='approved'", (ids,))
+        approved = fetchall(
+            "SELECT id FROM question_bank_items WHERE id = ANY(%s) AND status='approved' AND plan_id=%s",
+            (ids, assessment["plan_id"]),
+        )
         if {row["id"] for row in approved} != set(ids):
-            raise ValueError("Solo se pueden agregar preguntas aprobadas.")
+            raise ValueError("Solo se pueden agregar preguntas aprobadas del mismo plan analítico.")
     execute("DELETE FROM teacher_assessment_items WHERE assessment_id=%s", (assessment_id,))
     for position, item_id in enumerate(ids, 1):
         execute("INSERT INTO teacher_assessment_items(assessment_id,question_bank_item_id,position) VALUES(%s,%s,%s)", (assessment_id, item_id, position))
@@ -3612,7 +3656,8 @@ def render_teacher_plan_manager(user):
                 st.success(f"Plan guardado correctamente. ID: {plan_id}. Temas extraídos: {len(parsed.get('topics', []))}")
                 st.rerun()
 
-    plans = pd.DataFrame(get_analytic_plans())
+    role = str(user.get("role") or "").lower()
+    plans = pd.DataFrame(get_analytic_plans() if role == "admin" else get_analytic_plans(user["id"]))
     if plans.empty:
         st.info("Aún no hay planes analíticos cargados.")
         return
@@ -3672,25 +3717,25 @@ def render_teacher_plan_manager(user):
             payload = {"question": question, "options": _safe_json_loads(raw_options, []), "correct_answer": correct, "explanation": explanation, "bloom_level": bloom, "difficulty_level": item_difficulty}
             if action_save.button("Guardar cambios", key=f"qb_save_{item_id}"):
                 try:
-                    update_question_bank_item(item_id, payload)
+                    update_question_bank_item(item_id, payload, user["id"])
                     st.success("Cambios guardados.")
                     st.rerun()
                 except ValueError as exc:
                     st.error(str(exc))
             if action_approve.button("Aprobar", key=f"qb_approve_{item_id}"):
                 try:
-                    update_question_bank_item(item_id, payload)
+                    update_question_bank_item(item_id, payload, user["id"])
                     approve_question_bank_item(item_id, user["id"])
                     st.success("Pregunta aprobada y enviada al banco validado.")
                     st.rerun()
                 except ValueError as exc:
                     st.error(str(exc))
             if action_reject.button("Rechazar", key=f"qb_reject_{item_id}"):
-                reject_question_bank_item(item_id)
+                reject_question_bank_item(item_id, user["id"])
                 st.info("Pregunta rechazada.")
                 st.rerun()
             if action_delete.button("Eliminar", key=f"qb_delete_{item_id}"):
-                delete_question_bank_item(item_id)
+                delete_question_bank_item(item_id, user["id"])
                 st.info("Pregunta marcada como eliminada.")
                 st.rerun()
 
@@ -3708,7 +3753,7 @@ def render_teacher_plan_manager(user):
     selected_bank_ids = st.multiselect("Preguntas aprobadas", [item["id"] for item in bank_items], format_func=lambda item_id: next(f"#{item_id} · {item['topic']} · {item['question'][:65]}" for item in bank_items if item["id"] == item_id), key=f"assessment_bank_items_{plan_id}")
     assessment_title = st.text_input("Título de evaluación", key=f"assessment_title_{plan_id}")
     if st.button("Crear evaluación", key=f"create_assessment_{plan_id}"):
-        plan = next((row for row in get_analytic_plans() if row["id"] == int(plan_id)), {})
+        plan = next((row for row in plans.to_dict("records") if row["id"] == int(plan_id)), {})
         context = {key: plan.get(key) for key in ("subject", "course_level", "parallel", "shift", "cohort")}
         context["cohort"] = context.get("cohort") or plan.get("course")
         try:
