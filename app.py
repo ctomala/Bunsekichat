@@ -5859,7 +5859,7 @@ def teacher_scoped_page(user):
     Dashboard exclusivo para docentes.
     Nunca llama admin_page() y nunca usa métricas globales.
     """
-
+    # BUNSEKI-TEACHER-SCOPED-NAV-V1
     role = str(user.get("role", "")).lower() if user else ""
 
     if role not in {"teacher", "docente"}:
@@ -5875,6 +5875,18 @@ def teacher_scoped_page(user):
         )
         st.stop()
 
+    teacher_pages = (
+        "📊 Dashboard docente",
+        "📚 Planes analíticos",
+    )
+    nav_key = "teacher_scoped_nav_page"
+    fallback_key = "teacher_scoped_nav_fallback"
+
+    if st.session_state.get(nav_key) not in teacher_pages:
+        st.session_state[nav_key] = teacher_pages[0]
+    if st.session_state.get(fallback_key) not in teacher_pages:
+        st.session_state[fallback_key] = st.session_state[nav_key]
+
     with st.sidebar:
         st.markdown("## BunsekiChat")
         st.caption("Panel docente")
@@ -5882,9 +5894,43 @@ def teacher_scoped_page(user):
 
         st.markdown("---")
 
+        for page in teacher_pages:
+            if st.button(
+                page,
+                key=f"teacher_scoped_button_{page}",
+                use_container_width=True,
+            ):
+                st.session_state[nav_key] = page
+                st.session_state[fallback_key] = page
+                st.rerun()
+
+        st.markdown("---")
         st.write(f"**Usuario:** {user.get('username', 'Docente')}")
         st.write(f"**Cursos asignados:** {scope['courses']}")
         st.write(f"**Paralelos asignados:** {scope['parallels']}")
+
+    def _sync_teacher_scoped_fallback():
+        selected = st.session_state.get(fallback_key)
+        if selected in teacher_pages:
+            st.session_state[nav_key] = selected
+
+    st.markdown("#### 🧭 Navegación docente")
+    st.selectbox(
+        "Menú docente alternativo",
+        teacher_pages,
+        key=fallback_key,
+        on_change=_sync_teacher_scoped_fallback,
+    )
+    st.caption(
+        "Este selector permanece disponible aunque el panel lateral "
+        "esté oculto."
+    )
+
+    teacher_page = st.session_state.get(nav_key, teacher_pages[0])
+
+    if teacher_page == "📚 Planes analíticos":
+        render_teacher_plan_manager(user)
+        return
 
     st.title("📊 Dashboard docente")
     st.caption(
