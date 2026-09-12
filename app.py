@@ -2719,6 +2719,69 @@ Dificultad obligatoria: {difficulty}
     return create_question_bank_drafts(teacher_id, plan_topic_id, normalized, model)
 
 
+ASSESSMENT_AUDIENCE_MODES = ("academic_context", "targeted")
+
+
+def _assessment_audience_mode(assessment):
+    mode = str((assessment or {}).get("audience_mode") or "academic_context").strip().lower()
+    return mode if mode in ASSESSMENT_AUDIENCE_MODES else "invalid"
+
+
+def get_teacher_assessment_target_user_ids(assessment_id):
+    rows = fetchall(
+        "SELECT user_id FROM teacher_assessment_targets WHERE assessment_id=%s ORDER BY user_id",
+        (assessment_id,),
+    )
+    return [int(row["user_id"]) for row in rows]
+
+
+def set_teacher_assessment_audience(assessment_id, teacher_id, audience_mode, target_user_ids=None):
+    assessment = get_teacher_assessment(assessment_id)
+    if not assessment or assessment["created_by"] != teacher_id or assessment["status"] != "draft":
+        raise ValueError("Solo el docente creador puede configurar la audiencia de una evaluación en borrador.")
+    mode = str(audience_mode or "").strip().lower()
+    if mode not in ASSESSMENT_AUDIENCE_MODES:
+        raise ValueError("Modo de audiencia inválido.")
+    ids = list(dict.fromkeys(int(user_id) for user_id in (target_user_ids or []) if int(user_id) > 0))
+    if mode == "targeted" and not ids:
+        raise ValueError("Una evaluación dirigida necesita al menos un estudiante destinatario.")
+    if mode == "academic_context" and ids:
+        raise ValueError("El modo por contexto académico no admite destinatarios individuales.")
+    if ids:
+        eligible = fetchall(
+            "SELECT id FROM users WHERE id = ANY(%s) AND role='student' AND active=TRUE",
+            (ids,),
+        )
+        if {int(row["id"]) for row in eligible} != set(ids):
+            raise ValueError("Todos los destinatarios deben ser estudiantes activos.")
+    execute("DELETE FROM teacher_assessment_targets WHERE assessment_id=%s", (assessment_id,))
+    execute(
+        "UPDATE teacher_assessments SET audience_mode=%s WHERE id=%s AND status='draft'",
+        (mode, assessment_id),
+    )
+    for user_id in ids:
+        execute(
+            """INSERT INTO teacher_assessment_targets(assessment_id,user_id,assigned_by,created_at)
+               VALUES(%s,%s,%s,%s)""",
+            (assessment_id, user_id, teacher_id, now()),
+        )
+    return get_teacher_assessment(assessment_id)
+
+
+def assessment_allows_student(assessment, user_id, academic_context=None):
+    mode = _assessment_audience_mode(assessment)
+    if mode == "academic_context":
+        return assessment_matches_academic_context(assessment, academic_context)
+    if mode != "targeted" or not user_id:
+        return False
+    if not assessment_matches_academic_context(assessment, academic_context):
+        return False
+    target = fetchone(
+        "SELECT 1 AS allowed FROM teacher_assessment_targets WHERE assessment_id=%s AND user_id=%s",
+        (assessment.get("id"), user_id),
+    )
+    return bool(target)
+
 def create_teacher_assessment(created_by, plan_id, title, academic_context=None):
     context = academic_context or {}
     if not actor_can_manage_plan(plan_id, created_by):
@@ -2764,10 +2827,20 @@ def set_teacher_assessment_items(assessment_id, teacher_id, question_bank_item_i
 
 def publish_teacher_assessment(assessment_id, teacher_id):
     assessment = get_teacher_assessment(assessment_id)
-    if not assessment or assessment["created_by"] != teacher_id or assessment["status"] != "draft": raise ValueError("La evaluación no se puede publicar.")
-    if not get_teacher_assessment_items(assessment_id): raise ValueError("No se puede publicar una evaluación sin preguntas.")
-    return execute("UPDATE teacher_assessments SET status='published', published_at=%s WHERE id=%s AND status='draft' RETURNING *", (now(), assessment_id), returning=True)
-
+    if not assessment or assessment["created_by"] != teacher_id or assessment["status"] != "draft":
+        raise ValueError("La evaluación no se puede publicar.")
+    if not get_teacher_assessment_items(assessment_id):
+        raise ValueError("No se puede publicar una evaluación sin preguntas.")
+    mode = _assessment_audience_mode(assessment)
+    if mode == "invalid":
+        raise ValueError("La evaluación tiene un modo de audiencia inválido.")
+    if mode == "targeted" and not get_teacher_assessment_target_user_ids(assessment_id):
+        raise ValueError("No se puede publicar una evaluación dirigida sin estudiantes destinatarios.")
+    return execute(
+        "UPDATE teacher_assessments SET status='published', published_at=%s WHERE id=%s AND status='draft' RETURNING *",
+        (now(), assessment_id),
+        returning=True,
+    )
 
 def close_teacher_assessment(assessment_id, teacher_id):
     assessment = get_teacher_assessment(assessment_id)
@@ -2779,26 +2852,47 @@ def assessment_matches_academic_context(assessment, context):
     return all(not assessment.get(key) or str(assessment.get(key)) == str((context or {}).get(key) or "") for key in ("subject", "course_level", "parallel", "shift", "cohort"))
 
 
-def get_student_teacher_assessments(academic_context):
+def get_student_teacher_assessments(academic_context, user_id=None):
     rows = get_teacher_assessments(status="published")
-    return [row for row in rows if assessment_matches_academic_context(row, academic_context)]
-
+    return [row for row in rows if assessment_allows_student(row, user_id, academic_context)]
 
 def start_teacher_assessment_attempt(user_id, teacher_assessment_id, academic_context=None):
     assessment = get_teacher_assessment(teacher_assessment_id)
-    if not assessment or assessment["status"] != "published": raise ValueError("La evaluación no está publicada.")
-    if not assessment_matches_academic_context(assessment, academic_context): raise ValueError("La evaluación no corresponde a tu contexto académico.")
-    existing = fetchone("SELECT * FROM adaptive_quizzes WHERE user_id=%s AND teacher_assessment_id=%s", (user_id, teacher_assessment_id))
+    if not assessment or assessment["status"] != "published":
+        raise ValueError("La evaluación no está publicada.")
+    # assessment_matches_academic_context remains enforced inside assessment_allows_student.
+    if not assessment_allows_student(assessment, user_id, academic_context):
+        raise ValueError("La evaluación no está asignada a este estudiante o no corresponde a su contexto académico.")
+    existing = fetchone(
+        "SELECT * FROM adaptive_quizzes WHERE user_id=%s AND teacher_assessment_id=%s",
+        (user_id, teacher_assessment_id),
+    )
     if existing: return existing
     items = get_teacher_assessment_items(teacher_assessment_id)
-    if not items or any(item.get("status") != "approved" for item in items): raise ValueError("La evaluación contiene preguntas no aprobadas.")
-    quiz = execute("""INSERT INTO adaptive_quizzes(user_id,plan_id,title,quiz_type,source_topic,difficulty,subject,course_level,parallel,shift,cohort,question_count,status,teacher_assessment_id,created_at)
-        VALUES(%s,%s,%s,'bank_assessment',%s,'Banco aprobado',%s,%s,%s,%s,%s,%s,'generated',%s,%s) RETURNING *""", (user_id, assessment["plan_id"], assessment["title"], items[0].get("topic", ""), assessment.get("subject"), assessment.get("course_level"), assessment.get("parallel"), assessment.get("shift"), assessment.get("cohort"), len(items), teacher_assessment_id, now()), returning=True)
+    if not items or any(item.get("status") != "approved" for item in items):
+        raise ValueError("La evaluación contiene preguntas no aprobadas.")
+    quiz = execute(
+        """INSERT INTO adaptive_quizzes(user_id,plan_id,title,quiz_type,source_topic,difficulty,subject,course_level,parallel,shift,cohort,question_count,status,teacher_assessment_id,created_at)
+           VALUES(%s,%s,%s,'bank_assessment',%s,'Banco aprobado',%s,%s,%s,%s,%s,%s,'generated',%s,%s) RETURNING *""",
+        (
+            user_id, assessment["plan_id"], assessment["title"], items[0].get("topic", ""),
+            assessment.get("subject"), assessment.get("course_level"), assessment.get("parallel"),
+            assessment.get("shift"), assessment.get("cohort"), len(items), teacher_assessment_id, now(),
+        ),
+        returning=True,
+    )
     for item in items:
-        execute("""INSERT INTO adaptive_questions(quiz_id,question,options_json,correct_answer,position,topic,subtopic,difficulty_level,explanation,bloom_level,question_bank_item_id,plan_topic_id,learning_outcome)
-            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (quiz["id"], item["question"], item["options_json"], item["correct_answer"], item["position"], item.get("topic"), item.get("subtopic"), item.get("difficulty_level"), item.get("explanation"), item.get("bloom_level"), item["question_bank_item_id"], item.get("plan_topic_id"), item.get("learning_outcome")))
+        execute(
+            """INSERT INTO adaptive_questions(quiz_id,question,options_json,correct_answer,position,topic,subtopic,difficulty_level,explanation,bloom_level,question_bank_item_id,plan_topic_id,learning_outcome)
+               VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (
+                quiz["id"], item["question"], item["options_json"], item["correct_answer"], item["position"],
+                item.get("topic"), item.get("subtopic"), item.get("difficulty_level"), item.get("explanation"),
+                item.get("bloom_level"), item["question_bank_item_id"], item.get("plan_topic_id"),
+                item.get("learning_outcome"),
+            ),
+        )
     return quiz
-
 
 def grade_teacher_assessment_attempt(quiz_id, answers, elapsed_seconds=None):
     quiz, questions = load_adaptive_quiz(quiz_id)
@@ -3782,7 +3876,7 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
     academic_context = academic_context_from_profile(prof)
     is_control_group = str(prof.get("research_group") or "").strip().lower() == "control"
     st.markdown("### Evaluaciones del docente")
-    published_assessments = get_student_teacher_assessments(academic_context)
+    published_assessments = get_student_teacher_assessments(academic_context, user["id"])
     if not published_assessments:
         st.caption("No hay evaluaciones docentes publicadas para tu contexto académico.")
     for assessment in published_assessments:

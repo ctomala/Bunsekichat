@@ -65,4 +65,4 @@ class CurricularAssessmentTraceabilityTests(unittest.TestCase):
 
     def test_student_ui_is_separate_and_only_uses_published_matching_assessments(self):
         self.assertIn("### Evaluaciones del docente", APP)
-        self.assertIn("get_student_teacher_assessments(academic_context)", APP)
+        self.assertIn('get_student_teacher_assessments(academic_context, user["id"])', APP)
