@@ -102,8 +102,36 @@ class TeacherAssessmentTargetingPostgresIntegration(unittest.TestCase):
                 """
                 CREATE TABLE profiles(
                     user_id INTEGER PRIMARY KEY,
-                    research_group TEXT
+                    research_group TEXT,
+                    first_names TEXT,
+                    last_names TEXT,
+                    subject TEXT,
+                    course_level TEXT,
+                    parallel TEXT,
+                    shift TEXT,
+                    cohort TEXT,
+                    course TEXT
                 );
+
+                CREATE TABLE teachers(
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+                    status TEXT NOT NULL DEFAULT 'active'
+                );
+
+                CREATE TABLE teacher_parallels(
+                    teacher_id INTEGER NOT NULL REFERENCES teachers(id),
+                    parallel_id BIGINT NOT NULL,
+                    PRIMARY KEY(teacher_id, parallel_id)
+                );
+
+                CREATE TABLE enrollments(
+                    id SERIAL PRIMARY KEY,
+                    student_user_id INTEGER NOT NULL REFERENCES users(id),
+                    parallel_id BIGINT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active'
+                );
+
                 ALTER TABLE adaptive_quizzes ADD COLUMN version_code TEXT;
                 ALTER TABLE adaptive_questions ADD COLUMN item_code TEXT;
                 ALTER TABLE adaptive_questions ADD COLUMN dimension TEXT;
@@ -138,6 +166,23 @@ class TeacherAssessmentTargetingPostgresIntegration(unittest.TestCase):
                 (f"teacher_{suffix}",),
             )
             teacher_id = cur.fetchone()[0]
+
+            cur.execute(
+                """
+                INSERT INTO teachers(user_id,status)
+                VALUES(%s,'active')
+                RETURNING id
+                """,
+                (teacher_id,),
+            )
+            teacher_record_id = cur.fetchone()[0]
+            cur.execute(
+                """
+                INSERT INTO teacher_parallels(teacher_id,parallel_id)
+                VALUES(%s,%s)
+                """,
+                (teacher_record_id, teacher_id),
+            )
 
             cur.execute(
                 """
@@ -263,6 +308,56 @@ class TeacherAssessmentTargetingPostgresIntegration(unittest.TestCase):
                 teacher_id,
             )
 
+        with self.db.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO users(username,role,active)
+                VALUES('student_historical_out_of_scope','student',TRUE)
+                RETURNING id
+                """
+            )
+            historical_student = cur.fetchone()[0]
+            cur.execute(
+                """
+                INSERT INTO profiles(
+                    user_id,first_names,last_names,subject,course_level,
+                    parallel,shift,cohort,course
+                )
+                VALUES(%s,'Historical','OutOfScope',%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    historical_student,
+                    ctx["subject"],
+                    ctx["course_level"],
+                    ctx["parallel"],
+                    ctx["shift"],
+                    ctx["cohort"],
+                    ctx["cohort"],
+                ),
+            )
+            cur.execute(
+                """
+                INSERT INTO enrollments(student_user_id,parallel_id,status)
+                VALUES(%s,%s,'active')
+                """,
+                (historical_student, teacher_id + 100000),
+            )
+            cur.execute(
+                """
+                INSERT INTO teacher_assessment_targets(
+                    assessment_id,user_id,assigned_by,created_at
+                )
+                VALUES(%s,%s,%s,'2026-09-12T00:00:00')
+                """,
+                (assessment["id"], historical_student, teacher_id),
+            )
+
+        with self.assertRaises(ValueError):
+            a.publish_teacher_assessment(
+                assessment["id"],
+                teacher_id,
+            )
+
     def test_targeted_flow_denies_unassigned_student_and_keeps_context_guard(self):
         a = self.app
         teacher_id, plan_id, item_id = self._create_plan_and_item("flow")
@@ -275,13 +370,91 @@ class TeacherAssessmentTargetingPostgresIntegration(unittest.TestCase):
                 VALUES
                     ('student_target','student',TRUE),
                     ('student_other','student',TRUE),
-                    ('student_inactive','student',FALSE)
+                    ('student_inactive','student',FALSE),
+                    ('student_wrong_context','student',TRUE)
                 RETURNING id
                 """
             )
-            student_target, student_other, student_inactive = [
-                row[0] for row in cur.fetchall()
+            (
+                student_target,
+                student_other,
+                student_inactive,
+                student_wrong_context,
+            ) = [row[0] for row in cur.fetchall()]
+
+            profile_rows = [
+                (
+                    student_target,
+                    'Target',
+                    'Student',
+                    ctx["subject"],
+                    ctx["course_level"],
+                    ctx["parallel"],
+                    ctx["shift"],
+                    ctx["cohort"],
+                    ctx["cohort"],
+                ),
+                (
+                    student_other,
+                    'Other',
+                    'Student',
+                    ctx["subject"],
+                    ctx["course_level"],
+                    ctx["parallel"],
+                    ctx["shift"],
+                    ctx["cohort"],
+                    ctx["cohort"],
+                ),
+                (
+                    student_inactive,
+                    'Inactive',
+                    'Student',
+                    ctx["subject"],
+                    ctx["course_level"],
+                    ctx["parallel"],
+                    ctx["shift"],
+                    ctx["cohort"],
+                    ctx["cohort"],
+                ),
+                (
+                    student_wrong_context,
+                    'Wrong',
+                    'Context',
+                    ctx["subject"],
+                    ctx["course_level"],
+                    '4-B1',
+                    ctx["shift"],
+                    '4-4-B1 Matutino',
+                    '4-4-B1 Matutino',
+                ),
             ]
+            cur.executemany(
+                """
+                INSERT INTO profiles(
+                    user_id,first_names,last_names,subject,course_level,
+                    parallel,shift,cohort,course
+                )
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                profile_rows,
+            )
+
+            cur.execute(
+                """
+                INSERT INTO enrollments(student_user_id,parallel_id,status)
+                VALUES
+                    (%s,%s,'active'),
+                    (%s,%s,'active'),
+                    (%s,%s,'active'),
+                    (%s,%s,'active')
+                """,
+                (
+                    student_target, teacher_id,
+                    student_other, teacher_id + 100000,
+                    student_inactive, teacher_id,
+                    student_wrong_context, teacher_id,
+                ),
+            )
 
         assessment = a.create_teacher_assessment(
             teacher_id,
@@ -310,6 +483,31 @@ class TeacherAssessmentTargetingPostgresIntegration(unittest.TestCase):
                 "targeted",
                 [student_inactive],
             )
+
+        with self.assertRaises(ValueError):
+            a.set_teacher_assessment_audience(
+                assessment["id"],
+                teacher_id,
+                "targeted",
+                [student_other],
+            )
+
+        with self.assertRaises(ValueError):
+            a.set_teacher_assessment_audience(
+                assessment["id"],
+                teacher_id,
+                "targeted",
+                [student_wrong_context],
+            )
+
+        eligible_ids = [
+            row["id"]
+            for row in a.get_teacher_assessment_eligible_students(
+                assessment["id"],
+                teacher_id,
+            )
+        ]
+        self.assertEqual(eligible_ids, [student_target])
 
         a.set_teacher_assessment_audience(
             assessment["id"],

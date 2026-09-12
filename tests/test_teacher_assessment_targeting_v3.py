@@ -28,6 +28,24 @@ class TeacherAssessmentTargetingV3Tests(unittest.TestCase):
         self.assertIn("active=TRUE", source)
         self.assertIn("necesita al menos un estudiante", source)
 
+    def test_target_configuration_enforces_teacher_scope_and_context(self):
+        source = function_source("set_teacher_assessment_audience")
+        self.assertIn("get_teacher_assessment_eligible_students", source)
+        self.assertIn("alcance del ", source)
+        self.assertIn("docente y coincidir", source)
+        helper = function_source("get_teacher_assessment_eligible_students")
+        self.assertIn("teacher_parallels", helper)
+        self.assertIn("enrollments", helper)
+        self.assertIn("assessment_matches_academic_context", helper)
+        self.assertIn("u.active=TRUE", helper)
+
+    def test_teacher_plan_ui_exposes_audience_editor(self):
+        source = function_source("render_teacher_plan_manager")
+        self.assertIn("Modo de audiencia", source)
+        self.assertIn("Estudiantes destinatarios", source)
+        self.assertIn("set_teacher_assessment_audience", source)
+        self.assertIn("get_teacher_assessment_target_user_ids", source)
+
     def test_academic_context_mode_rejects_individual_targets(self):
         source = function_source("set_teacher_assessment_audience")
         self.assertIn('mode == "academic_context" and ids', source)
@@ -49,6 +67,12 @@ class TeacherAssessmentTargetingV3Tests(unittest.TestCase):
         self.assertIn('mode == "targeted"', source)
         self.assertIn("get_teacher_assessment_target_user_ids", source)
         self.assertIn("sin estudiantes destinatarios", source)
+
+    def test_publish_revalidates_target_scope_and_context(self):
+        source = function_source("publish_teacher_assessment")
+        self.assertIn("get_teacher_assessment_eligible_students", source)
+        self.assertIn("issubset", source)
+        self.assertIn("fuera del alcance docente", source)
 
     def test_attempt_start_uses_same_target_authorization_gate(self):
         source = function_source("start_teacher_assessment_attempt")

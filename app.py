@@ -2732,6 +2732,74 @@ def get_teacher_assessment_target_user_ids(assessment_id):
     return [int(row["user_id"]) for row in rows]
 
 
+# P5A5-ELIGIBLE-ASSESSMENT-TARGETS
+def get_teacher_assessment_eligible_students(assessment_id, actor_user_id):
+    assessment = fetchone(
+        "SELECT * FROM teacher_assessments WHERE id=%s",
+        (assessment_id,),
+    )
+    if not assessment or int(assessment.get("created_by") or 0) != int(actor_user_id or 0):
+        return []
+
+    actor = fetchone(
+        "SELECT role, active FROM users WHERE id=%s",
+        (actor_user_id,),
+    ) or {}
+    if not bool(actor.get("active")):
+        return []
+
+    role = str(actor.get("role") or "").strip().lower()
+    columns = """
+        u.id,u.username,
+        p.first_names,p.last_names,p.subject,p.course_level,
+        p.parallel,p.shift,p.cohort,p.course
+    """
+
+    if role in {"teacher", "docente"}:
+        rows = fetchall(
+            f"""
+            SELECT DISTINCT {columns}
+            FROM users u
+            JOIN enrollments e
+              ON e.student_user_id=u.id
+             AND e.status='active'
+            JOIN teacher_parallels tp
+              ON tp.parallel_id=e.parallel_id
+            JOIN teachers t
+              ON t.id=tp.teacher_id
+             AND t.user_id=%s
+             AND t.status='active'
+            LEFT JOIN profiles p
+              ON p.user_id=u.id
+            WHERE u.role='student'
+              AND u.active=TRUE
+            ORDER BY u.id
+            """,
+            (actor_user_id,),
+        )
+    elif role == "admin":
+        rows = fetchall(
+            f"""
+            SELECT DISTINCT {columns}
+            FROM users u
+            LEFT JOIN profiles p
+              ON p.user_id=u.id
+            WHERE u.role='student'
+              AND u.active=TRUE
+            ORDER BY u.id
+            """
+        )
+    else:
+        return []
+
+    eligible = []
+    for row in rows:
+        context = academic_context_from_profile(row)
+        if assessment_matches_academic_context(assessment, context):
+            eligible.append(row)
+    return eligible
+
+
 def set_teacher_assessment_audience(assessment_id, teacher_id, audience_mode, target_user_ids=None):
     assessment = get_teacher_assessment(assessment_id)
     if not assessment or assessment["created_by"] != teacher_id or assessment["status"] != "draft":
@@ -2751,6 +2819,18 @@ def set_teacher_assessment_audience(assessment_id, teacher_id, audience_mode, ta
         )
         if {int(row["id"]) for row in eligible} != set(ids):
             raise ValueError("Todos los destinatarios deben ser estudiantes activos.")
+        scoped_ids = {
+            int(row["id"])
+            for row in get_teacher_assessment_eligible_students(
+                assessment_id,
+                teacher_id,
+            )
+        }
+        if set(ids) != (set(ids) & scoped_ids):
+            raise ValueError(
+                "Todos los destinatarios deben pertenecer al alcance del "
+                "docente y coincidir con el contexto académico de la evaluación."
+            )
     execute("DELETE FROM teacher_assessment_targets WHERE assessment_id=%s", (assessment_id,))
     execute(
         "UPDATE teacher_assessments SET audience_mode=%s WHERE id=%s AND status='draft'",
@@ -2831,8 +2911,22 @@ def publish_teacher_assessment(assessment_id, teacher_id):
     mode = _assessment_audience_mode(assessment)
     if mode == "invalid":
         raise ValueError("La evaluación tiene un modo de audiencia inválido.")
-    if mode == "targeted" and not get_teacher_assessment_target_user_ids(assessment_id):
-        raise ValueError("No se puede publicar una evaluación dirigida sin estudiantes destinatarios.")
+    if mode == "targeted":
+        target_ids = get_teacher_assessment_target_user_ids(assessment_id)
+        if not target_ids:
+            raise ValueError("No se puede publicar una evaluación dirigida sin estudiantes destinatarios.")
+        eligible_ids = {
+            int(row["id"])
+            for row in get_teacher_assessment_eligible_students(
+                assessment_id,
+                teacher_id,
+            )
+        }
+        if not set(target_ids).issubset(eligible_ids):
+            raise ValueError(
+                "No se puede publicar una evaluación dirigida con destinatarios "
+                "fuera del alcance docente o del contexto académico vigente."
+            )
     return execute(
         "UPDATE teacher_assessments SET status='published', published_at=%s WHERE id=%s AND status='draft' RETURNING *",
         (now(), assessment_id),
@@ -3854,17 +3948,121 @@ def render_teacher_plan_manager(user):
         except ValueError as exc: st.error(str(exc))
     for assessment in get_teacher_assessments(created_by=user["id"]):
         with st.expander(f"Evaluación #{assessment['id']} · {assessment['title']} · {assessment['status']}"):
+            assessment_id = int(assessment["id"])
             st.write(f"Contexto: {assessment.get('subject') or '—'} · {assessment.get('course_level') or '—'} · {assessment.get('parallel') or '—'} · {assessment.get('shift') or '—'}")
-            st.write(f"Preguntas: {len(get_teacher_assessment_items(assessment['id']))}")
-            if assessment["status"] == "draft" and st.button("Publicar evaluación", key=f"publish_assessment_{assessment['id']}"):
-                try: publish_teacher_assessment(assessment["id"], user["id"]); st.success("Evaluación publicada."); st.rerun()
-                except ValueError as exc: st.error(str(exc))
-            if assessment["status"] == "published" and st.button("Cerrar evaluación", key=f"close_assessment_{assessment['id']}"):
-                try: close_teacher_assessment(assessment["id"], user["id"]); st.success("Evaluación cerrada."); st.rerun()
+            st.write(f"Preguntas: {len(get_teacher_assessment_items(assessment_id))}")
+
+            audience_mode = _assessment_audience_mode(assessment)
+            target_ids = get_teacher_assessment_target_user_ids(assessment_id)
+            audience_label = (
+                "Dirigida a estudiantes seleccionados"
+                if audience_mode == "targeted"
+                else "Por contexto académico"
+            )
+            st.write(f"**Audiencia:** {audience_label}")
+
+            eligible_students = get_teacher_assessment_eligible_students(
+                assessment_id,
+                user["id"],
+            )
+            eligible_by_id = {
+                int(row["id"]): row
+                for row in eligible_students
+            }
+
+            def _assessment_student_label(student_id):
+                row = eligible_by_id.get(int(student_id), {})
+                full_name = normalize_spaces(
+                    f"{row.get('first_names') or ''} {row.get('last_names') or ''}"
+                )
+                username = row.get("username") or f"usuario_{student_id}"
+                return f"{full_name or username} · {username} · ID {student_id}"
+
+            if target_ids:
+                visible_targets = [
+                    _assessment_student_label(student_id)
+                    for student_id in target_ids
+                ]
+                st.caption(
+                    "Destinatarios actuales: " + " | ".join(visible_targets)
+                )
+            elif audience_mode == "targeted":
+                st.warning(
+                    "La evaluación está en modo dirigido pero no tiene "
+                    "destinatarios. No puede publicarse."
+                )
+
+            if assessment["status"] == "draft":
+                mode_options = {
+                    "academic_context": "Por contexto académico",
+                    "targeted": "Dirigida a estudiantes seleccionados",
+                }
+                selected_mode = st.selectbox(
+                    "Modo de audiencia",
+                    list(mode_options),
+                    index=(
+                        list(mode_options).index(audience_mode)
+                        if audience_mode in mode_options
+                        else 0
+                    ),
+                    format_func=lambda value: mode_options[value],
+                    key=f"assessment_audience_mode_{assessment_id}",
+                )
+
+                selected_targets = []
+                if selected_mode == "targeted":
+                    eligible_ids = list(eligible_by_id)
+                    selected_targets = st.multiselect(
+                        "Estudiantes destinatarios",
+                        eligible_ids,
+                        default=[
+                            student_id
+                            for student_id in target_ids
+                            if student_id in eligible_by_id
+                        ],
+                        format_func=_assessment_student_label,
+                        key=f"assessment_targets_{assessment_id}",
+                    )
+                    if not eligible_ids:
+                        st.info(
+                            "No existen estudiantes elegibles dentro de tus "
+                            "asignaciones y del contexto de esta evaluación."
+                        )
+
+                if st.button(
+                    "Guardar audiencia",
+                    key=f"save_assessment_audience_{assessment_id}",
+                    use_container_width=True,
+                ):
+                    try:
+                        set_teacher_assessment_audience(
+                            assessment_id,
+                            user["id"],
+                            selected_mode,
+                            selected_targets,
+                        )
+                        st.success("Audiencia guardada correctamente.")
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
+
+                if st.button(
+                    "Publicar evaluación",
+                    key=f"publish_assessment_{assessment_id}",
+                ):
+                    try:
+                        publish_teacher_assessment(assessment_id, user["id"])
+                        st.success("Evaluación publicada.")
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
+
+            if assessment["status"] == "published" and st.button("Cerrar evaluación", key=f"close_assessment_{assessment_id}"):
+                try: close_teacher_assessment(assessment_id, user["id"]); st.success("Evaluación cerrada."); st.rerun()
                 except ValueError as exc: st.error(str(exc))
             if assessment["status"] in ("published", "closed"):
-                st.dataframe(pd.DataFrame(get_teacher_assessment_results(assessment["id"])), use_container_width=True)
-                analytics = get_teacher_assessment_curricular_analytics(assessment["id"])
+                st.dataframe(pd.DataFrame(get_teacher_assessment_results(assessment_id)), use_container_width=True)
+                analytics = get_teacher_assessment_curricular_analytics(assessment_id)
                 for label, rows in analytics.items():
                     st.caption(label); st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
