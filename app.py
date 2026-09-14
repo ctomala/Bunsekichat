@@ -4079,6 +4079,12 @@ def render_teacher_plan_manager(user):
 
 
 
+def _p5a6_transaction_connection():
+    connection = conn()
+    connection.autocommit = False
+    return connection
+
+
 def _p5a6_elapsed_seconds(connection, attempt_id, user_id):
     with connection.cursor() as cur:
         cur.execute(
@@ -4092,7 +4098,7 @@ def _p5a6_elapsed_seconds(connection, attempt_id, user_id):
                         )
                     )
                 )
-            )::INTEGER
+            )::INTEGER AS elapsed_seconds
             FROM public.assessment_attempts
             WHERE id=%s
               AND user_id=%s
@@ -4104,7 +4110,7 @@ def _p5a6_elapsed_seconds(connection, attempt_id, user_id):
     if not row:
         raise ValueError("Intento reanudable no encontrado.")
 
-    return int(row[0] or 0)
+    return int(row.get("elapsed_seconds") or 0)
 
 
 def _p5a6_prepare_teacher_attempt(user_id, quiz, register_resume=False):
@@ -4115,7 +4121,7 @@ def _p5a6_prepare_teacher_attempt(user_id, quiz, register_resume=False):
     if not teacher_assessment_id:
         raise ValueError("La evaluacion no tiene identificador docente.")
 
-    connection = conn()
+    connection = _p5a6_transaction_connection()
     try:
         attempt = resumable_get_or_create_attempt(
             connection,
@@ -4157,7 +4163,7 @@ def _p5a6_autosave_teacher_answer(user_id, attempt_id, question_id, position, wi
     if answer is None:
         return
 
-    connection = conn()
+    connection = _p5a6_transaction_connection()
     try:
         elapsed_seconds = _p5a6_elapsed_seconds(connection, attempt_id, user_id)
         resumable_save_attempt_answer(
@@ -4188,7 +4194,7 @@ def _p5a6_grade_teacher_assessment_resumable(user_id, quiz_id, attempt_id, answe
     if int(quiz.get("user_id")) != int(user_id):
         raise ValueError("La evaluacion no pertenece al estudiante autenticado.")
 
-    connection = conn()
+    connection = _p5a6_transaction_connection()
     try:
         with connection.cursor() as cur:
             cur.execute(
@@ -4205,8 +4211,8 @@ def _p5a6_grade_teacher_assessment_resumable(user_id, quiz_id, attempt_id, answe
         if not attempt_row:
             raise ValueError("Intento reanudable no encontrado.")
 
-        attempt_status = attempt_row[0]
-        attempt_quiz_id = attempt_row[1]
+        attempt_status = attempt_row.get("status")
+        attempt_quiz_id = attempt_row.get("adaptive_quiz_id")
 
         if attempt_quiz_id is None or int(attempt_quiz_id) != int(quiz_id):
             raise ValueError("El intento reanudable no corresponde a esta evaluacion.")
@@ -4292,6 +4298,407 @@ def _p5a6_grade_teacher_assessment_resumable(user_id, quiz_id, attempt_id, answe
     completed_quiz, _ = load_adaptive_quiz(quiz_id)
     return completed_quiz
 
+
+def _p5a6_prepare_research_attempt(
+    user_id,
+    quiz,
+    register_resume=False,
+):
+    if not quiz or not is_research_quiz(quiz.get("quiz_type")):
+        raise ValueError(
+            "El instrumento no corresponde a pretest/posttest."
+        )
+
+    quiz_type = str(quiz.get("quiz_type") or "").lower()
+    if quiz_type not in {"pretest", "posttest"}:
+        raise ValueError(
+            "Tipo de instrumento de investigacion no soportado."
+        )
+
+    connection = _p5a6_transaction_connection()
+    try:
+        attempt = resumable_get_or_create_attempt(
+            connection,
+            user_id=user_id,
+            assessment_kind=quiz_type,
+            source_key=f"research:{quiz_type}:adaptive_quiz:{quiz['id']}",
+            adaptive_quiz_id=quiz["id"],
+            version_code=quiz.get("version_code"),
+            metadata={
+                "quiz_type": quiz_type,
+                "adaptive_quiz_id": quiz["id"],
+                "version_code": quiz.get("version_code"),
+                "subject": quiz.get("subject"),
+                "course_level": quiz.get("course_level"),
+                "parallel": quiz.get("parallel"),
+                "shift": quiz.get("shift"),
+                "cohort": quiz.get("cohort"),
+                "source_topic": quiz.get("source_topic"),
+                "research_title": quiz.get("research_title"),
+            },
+        )
+
+        if register_resume and not attempt.get("created"):
+            attempt = resumable_resume_attempt(
+                connection,
+                attempt_id=attempt["id"],
+                user_id=user_id,
+            )
+
+        progress = resumable_load_attempt_progress(
+            connection,
+            attempt_id=attempt["id"],
+            user_id=user_id,
+        )
+        connection.commit()
+        return progress
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def _p5a6_autosave_research_answer(
+    user_id,
+    attempt_id,
+    quiz_id,
+    question_id,
+    position,
+    widget_key,
+):
+    answer = st.session_state.get(widget_key)
+    if answer is None:
+        return
+
+    error_key = f"research_assessment_autosave_error_{quiz_id}"
+    connection = _p5a6_transaction_connection()
+    try:
+        elapsed_seconds = _p5a6_elapsed_seconds(
+            connection,
+            attempt_id,
+            user_id,
+        )
+        resumable_save_attempt_answer(
+            connection,
+            attempt_id=attempt_id,
+            user_id=user_id,
+            question_key=f"adaptive_question:{question_id}",
+            question_id=question_id,
+            answer_payload={"value": answer},
+            elapsed_seconds=elapsed_seconds,
+            current_position=max(0, int(position or 0)),
+        )
+        connection.commit()
+        st.session_state[error_key] = None
+        st.session_state[
+            f"research_last_saved_question_{quiz_id}"
+        ] = question_id
+    except Exception as exc:
+        connection.rollback()
+        st.session_state[error_key] = str(exc)
+    finally:
+        connection.close()
+
+
+def _p5a6_grade_research_quiz_resumable(
+    user_id,
+    quiz_id,
+    attempt_id,
+    answers,
+):
+    quiz, questions = load_adaptive_quiz(quiz_id)
+    if not quiz:
+        raise ValueError(
+            "Instrumento de investigacion no encontrado."
+        )
+
+    quiz_type = str(quiz.get("quiz_type") or "").lower()
+    if quiz_type not in {"pretest", "posttest"}:
+        raise ValueError(
+            "El instrumento no es pretest/posttest."
+        )
+    if int(quiz.get("user_id")) != int(user_id):
+        raise ValueError(
+            "El instrumento no pertenece al estudiante autenticado."
+        )
+
+    connection = _p5a6_transaction_connection()
+    try:
+        with connection.cursor() as cur:
+            cur.execute(
+                """
+                SELECT status, adaptive_quiz_id, assessment_kind
+                FROM public.assessment_attempts
+                WHERE id=%s
+                  AND user_id=%s
+                FOR UPDATE
+                """,
+                (attempt_id, user_id),
+            )
+            attempt_row = cur.fetchone()
+
+        if not attempt_row:
+            raise ValueError(
+                "Intento reanudable no encontrado."
+            )
+
+        attempt_status = attempt_row.get("status")
+        attempt_quiz_id = attempt_row.get("adaptive_quiz_id")
+        attempt_kind = str(
+            attempt_row.get("assessment_kind") or ""
+        ).lower()
+
+        if (
+            attempt_quiz_id is None
+            or int(attempt_quiz_id) != int(quiz_id)
+        ):
+            raise ValueError(
+                "El intento reanudable no corresponde "
+                "a este instrumento."
+            )
+        if attempt_kind != quiz_type:
+            raise ValueError(
+                "El tipo de intento no coincide con el instrumento."
+            )
+
+        with connection.cursor() as cur:
+            cur.execute(
+                """
+                SELECT status, score, passed, recommendation
+                FROM public.adaptive_quizzes
+                WHERE id=%s
+                  AND user_id=%s
+                FOR UPDATE
+                """,
+                (quiz_id, user_id),
+            )
+            quiz_row = cur.fetchone()
+
+        if not quiz_row:
+            raise ValueError(
+                "Instrumento no encontrado para el estudiante."
+            )
+
+        quiz_status = str(
+            quiz_row.get("status") or ""
+        ).lower()
+
+        if (
+            attempt_status == "submitted"
+            and quiz_status == "completed"
+        ):
+            connection.rollback()
+            return (
+                float(quiz_row.get("score") or 0),
+                bool(quiz_row.get("passed")),
+                [],
+                quiz_row.get("recommendation") or "",
+            )
+
+        if attempt_status != "in_progress":
+            raise ValueError(
+                "El intento ya no esta activo."
+            )
+        if quiz_status != "generated":
+            raise ValueError(
+                "El instrumento ya no esta disponible para envio."
+            )
+
+        elapsed_seconds = _p5a6_elapsed_seconds(
+            connection,
+            attempt_id,
+            user_id,
+        )
+        total = max(1, len(questions))
+        per_question_time = (
+            round(float(elapsed_seconds or 0) / total, 2)
+            if elapsed_seconds
+            else None
+        )
+
+        correct = 0
+        weak_topics = []
+        graded_questions = []
+
+        for ordinal, question in enumerate(
+            questions,
+            start=1,
+        ):
+            question_id = question["id"]
+            answer = (answers or {}).get(str(question_id))
+            if answer is None or str(answer).strip() == "":
+                raise ValueError(
+                    "Debes responder todas las preguntas "
+                    "antes de enviar."
+                )
+
+            position = question.get("position") or ordinal
+            resumable_save_attempt_answer(
+                connection,
+                attempt_id=attempt_id,
+                user_id=user_id,
+                question_key=f"adaptive_question:{question_id}",
+                question_id=question_id,
+                answer_payload={"value": answer},
+                elapsed_seconds=elapsed_seconds,
+                current_position=position,
+            )
+
+            is_correct = (
+                str(answer).strip()
+                == str(question.get("correct_answer", "")).strip()
+            )
+            if is_correct:
+                correct += 1
+            else:
+                weak_topics.append(
+                    question.get("question", "")[:120]
+                )
+
+            conceptual_error = conceptual_error_for_question(
+                question,
+                is_correct,
+            )
+            estimated_confidence = 0.85 if is_correct else 0.35
+
+            with connection.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE public.adaptive_questions
+                    SET user_answer=%s,
+                        is_correct=%s,
+                        attempts=%s,
+                        response_time_seconds=%s,
+                        conceptual_error=%s,
+                        estimated_confidence=%s
+                    WHERE id=%s
+                      AND quiz_id=%s
+                    """,
+                    (
+                        answer,
+                        is_correct,
+                        1,
+                        per_question_time,
+                        conceptual_error,
+                        estimated_confidence,
+                        question_id,
+                        quiz_id,
+                    ),
+                )
+                if cur.rowcount != 1:
+                    raise ValueError(
+                        "No se pudo actualizar una pregunta."
+                    )
+
+            graded = dict(question)
+            graded["user_answer"] = answer
+            graded["is_correct"] = is_correct
+            graded["conceptual_error"] = conceptual_error
+            graded["estimated_confidence"] = estimated_confidence
+            graded["response_time_seconds"] = per_question_time
+            graded_questions.append(graded)
+
+        score = round(correct / total * 100, 2)
+        passed = score >= 70
+        diagnosis = build_quiz_diagnosis(
+            score,
+            graded_questions,
+        )
+        recommendation = (
+            "Aprobado. Puedes avanzar al siguiente reto."
+            if passed
+            else (
+                "Refuerzo automatico sugerido: revisa las "
+                "preguntas falladas y estudia las microclases "
+                "sugeridas."
+            )
+        )
+
+        with connection.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.adaptive_quizzes
+                SET score=%s,
+                    passed=%s,
+                    status='completed',
+                    recommendation=%s,
+                    completed_at=%s,
+                    dimension_scores_json=%s,
+                    diagnosis_json=%s,
+                    cognitive_profile=%s,
+                    learning_plan_json=%s,
+                    total_time_seconds=%s
+                WHERE id=%s
+                  AND user_id=%s
+                  AND status='generated'
+                """,
+                (
+                    score,
+                    passed,
+                    recommendation,
+                    now(),
+                    json.dumps(
+                        diagnosis.get("dimension_scores", {}),
+                        ensure_ascii=False,
+                    ),
+                    json.dumps(
+                        diagnosis,
+                        ensure_ascii=False,
+                    ),
+                    diagnosis.get("profile", ""),
+                    json.dumps(
+                        diagnosis.get("learning_plan", {}),
+                        ensure_ascii=False,
+                    ),
+                    float(elapsed_seconds or 0),
+                    quiz_id,
+                    user_id,
+                ),
+            )
+            if cur.rowcount != 1:
+                raise ValueError(
+                    "No se pudo finalizar el instrumento."
+                )
+
+            profile_field = (
+                "pretest_estado"
+                if quiz_type == "pretest"
+                else "posttest_estado"
+            )
+            cur.execute(
+                f"""
+                UPDATE public.profiles
+                SET {profile_field}='completado'
+                WHERE user_id=%s
+                """,
+                (user_id,),
+            )
+            if cur.rowcount != 1:
+                raise ValueError(
+                    "No se pudo actualizar el estado "
+                    "de investigacion del estudiante."
+                )
+
+        resumable_submit_attempt(
+            connection,
+            attempt_id=attempt_id,
+            user_id=user_id,
+            elapsed_seconds=elapsed_seconds,
+        )
+        connection.commit()
+
+        return (
+            score,
+            passed,
+            weak_topics,
+            recommendation,
+        )
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 def render_student_adaptive_evaluation(user, prof, topic, subtopic):
     academic_context = academic_context_from_profile(prof)
@@ -4635,6 +5042,197 @@ def render_student_adaptive_evaluation(user, prof, topic, subtopic):
         if (quiz.get("quiz_type") or quiz_type) == "posttest":
             if not is_control_group:
                 render_final_survey(user, quiz)
+        return
+
+    if research_mode:
+        session_attempt_key = f"research_attempt_id_{quiz_id}"
+        register_resume = (
+            session_attempt_key not in st.session_state
+        )
+
+        try:
+            progress = _p5a6_prepare_research_attempt(
+                user["id"],
+                quiz,
+                register_resume=register_resume,
+            )
+        except Exception as exc:
+            st.error(
+                "No fue posible recuperar "
+                f"el instrumento: {exc}"
+            )
+            return
+
+        attempt = progress["attempt"]
+        attempt_id = attempt["id"]
+        st.session_state[session_attempt_key] = attempt_id
+
+        total_questions = len(questions)
+        answered_count = progress["answered_count"]
+
+        st.progress(
+            answered_count / max(1, total_questions)
+        )
+        st.caption(
+            f"Progreso guardado: "
+            f"{answered_count}/{total_questions} respuestas."
+        )
+
+        if attempt.get("resume_count", 0) > 0:
+            st.info(
+                "Se recupero tu intento anterior. "
+                "Puedes continuar desde donde lo dejaste."
+            )
+
+        autosave_error_key = (
+            f"research_assessment_autosave_error_{quiz_id}"
+        )
+        autosave_error = st.session_state.get(
+            autosave_error_key
+        )
+        if autosave_error:
+            st.error(
+                "No se pudo guardar "
+                f"la ultima respuesta: {autosave_error}"
+            )
+        elif answered_count:
+            st.caption(
+                "Guardado automatico activo."
+            )
+
+        answers = {}
+        for i, q in enumerate(
+            questions,
+            start=1,
+        ):
+            opts = (
+                q.get("options")
+                or _safe_json_loads(
+                    q.get("options_json"),
+                    [],
+                )
+            )
+            st.markdown(
+                f"<div class='eval-question'>"
+                f"<b>{i}. {q.get('question')}</b><br>"
+                f"<span class='eval-chip'>"
+                f"{q.get('bloom_level') or 'Aplicar'}"
+                f"</span>"
+                f"<span class='eval-chip'>"
+                f"{q.get('dimension') or 'Aplicaciones'}"
+                f"</span>"
+                f"<span class='eval-chip'>"
+                f"{q.get('difficulty_level') or 'Medio'}"
+                f"</span></div>",
+                unsafe_allow_html=True,
+            )
+
+            question_id = q["id"]
+            question_key = f"adaptive_question:{question_id}"
+            widget_key = f"research_q_{quiz_id}_{question_id}"
+
+            saved_row = progress[
+                "answers_by_key"
+            ].get(question_key)
+            saved_value = None
+            if saved_row:
+                payload = (
+                    saved_row.get("answer_json")
+                    or {}
+                )
+                if isinstance(payload, dict):
+                    saved_value = payload.get("value")
+
+            if (
+                widget_key not in st.session_state
+                and saved_value in opts
+            ):
+                st.session_state[
+                    widget_key
+                ] = saved_value
+
+            position = q.get("position") or i
+            answers[str(question_id)] = st.radio(
+                "Selecciona una respuesta",
+                opts,
+                index=None,
+                key=widget_key,
+                label_visibility="collapsed",
+                on_change=_p5a6_autosave_research_answer,
+                args=(
+                    user["id"],
+                    attempt_id,
+                    quiz_id,
+                    question_id,
+                    position,
+                    widget_key,
+                ),
+            )
+
+        if st.button(
+            f"Enviar {quiz_type_label(quiz_type)}",
+            key=f"submit_research_quiz_{quiz_id}",
+            type="primary",
+            use_container_width=True,
+        ):
+            unanswered = [
+                question_id
+                for question_id, answer
+                in answers.items()
+                if answer is None
+                or str(answer).strip() == ""
+            ]
+            if unanswered:
+                st.warning(
+                    "Debes responder todas las preguntas "
+                    "antes de enviar."
+                )
+            else:
+                try:
+                    (
+                        score,
+                        passed,
+                        weak_topics,
+                        recommendation,
+                    ) = _p5a6_grade_research_quiz_resumable(
+                        user["id"],
+                        int(quiz_id),
+                        attempt_id,
+                        answers,
+                    )
+
+                    event_type = f"{quiz_type}_submitted"
+                    gps_actual = capture_browser_gps(
+                        user["id"],
+                        page="evaluacion_ia",
+                        topic=topic,
+                        subtopic=subtopic,
+                        event_type=event_type,
+                        show_status=False,
+                    )
+                    log_location_event(
+                        user["id"],
+                        event_type,
+                        page="evaluacion_ia",
+                        topic=topic,
+                        subtopic=subtopic,
+                        gps=gps_actual,
+                    )
+
+                    if passed:
+                        st.success(
+                            f"Resultado: {score:.0f}%. "
+                            "Aprobaste la evaluacion."
+                        )
+                    else:
+                        st.warning(
+                            f"Resultado registrado: "
+                            f"{score:.0f}%."
+                        )
+
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
         return
 
     with st.form(f"adaptive_quiz_form_{quiz_id}"):
