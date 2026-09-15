@@ -5082,6 +5082,95 @@ def read_uploaded_plan_text(uploaded_file) -> str:
 
 
 
+# BUNSEKI_R2_SOURCE_TRACEABILITY_V3
+def _normalize_source_trace_text(value):
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _locate_plan_source_evidence(raw_text, item):
+    lines = str(raw_text or "").splitlines()
+    if not lines:
+        return "", ""
+
+    normalized_lines = [_normalize_source_trace_text(line) for line in lines]
+    candidate = _normalize_source_trace_text((item or {}).get("source_excerpt"))
+    normalized_doc = " ".join(line for line in normalized_lines if line)
+
+    def pack(index):
+        start = max(0, index - 1)
+        end = min(len(lines), index + 2)
+        excerpt = _normalize_source_trace_text(" ".join(lines[start:end]))[:500]
+        locator = f"Lineas {start + 1}-{end}"
+        return excerpt, locator
+
+    if candidate and candidate.casefold() in normalized_doc.casefold():
+        candidate_terms = [token for token in re.findall(r"\w+", candidate.casefold()) if len(token) >= 4]
+        best_index = None
+        best_score = 0
+        for index, line in enumerate(normalized_lines):
+            folded = line.casefold()
+            score = sum(1 for token in candidate_terms[:20] if token in folded)
+            if score > best_score:
+                best_index = index
+                best_score = score
+        if best_index is not None and best_score > 0:
+            return pack(best_index)
+
+    raw_terms = []
+    for key in ("topic", "subtopic", "unit_name", "keywords"):
+        value = _normalize_source_trace_text((item or {}).get(key))
+        if value:
+            raw_terms.extend(re.split(r"[,;:/|]+", value))
+
+    terms = []
+    for value in raw_terms:
+        for token in re.findall(r"\w+", value.casefold()):
+            if len(token) >= 4 and token not in terms:
+                terms.append(token)
+
+    best_index = None
+    best_score = 0
+    topic = _normalize_source_trace_text((item or {}).get("topic")).casefold()
+
+    for index, line in enumerate(normalized_lines):
+        folded = line.casefold()
+        if not folded:
+            continue
+        score = sum(1 for term in terms[:20] if term in folded)
+        if topic and topic in folded:
+            score += 6
+        if score > best_score:
+            best_index = index
+            best_score = score
+
+    if best_index is None or best_score <= 0:
+        return "", ""
+
+    return pack(best_index)
+
+
+def _attach_plan_source_traceability(raw_text, parsed):
+    if not isinstance(parsed, dict):
+        return parsed
+
+    topics = parsed.get("topics")
+    if not isinstance(topics, list):
+        return parsed
+
+    for item in topics:
+        if not isinstance(item, dict):
+            continue
+        excerpt, locator = _locate_plan_source_evidence(raw_text, item)
+        item["source_excerpt"] = excerpt
+        item["source_locator"] = locator
+
+    return parsed
+
+
+def ensure_plan_source_traceability_schema():
+    execute("ALTER TABLE IF EXISTS plan_topics ADD COLUMN IF NOT EXISTS source_excerpt TEXT")
+    execute("ALTER TABLE IF EXISTS plan_topics ADD COLUMN IF NOT EXISTS source_locator TEXT")
+
 def parse_plan_topics_with_ai(raw_text: str, title: str = "") -> dict:
 
     """Convierte un plan analítico en unidades/temas/resultados. Usa el servicio generativo si hay API; si no, fallback robusto."""
@@ -5142,7 +5231,7 @@ def parse_plan_topics_with_ai(raw_text: str, title: str = "") -> dict:
 
     if not client:
 
-        return {"summary": "Plan cargado con extracción básica local.", "topics": fallback_topics}
+        return _attach_plan_source_traceability(raw_text, {"summary": "Plan cargado con extracción básica local.", "topics": fallback_topics})
 
 
 
@@ -5170,7 +5259,8 @@ Analiza este plan analítico y devuelve SOLO JSON válido con esta estructura:
 
       "bloom_level": "Recordar/Comprender/Aplicar/Analizar/Evaluar/Crear",
 
-      "keywords": "palabras clave separadas por coma"
+      "keywords": "palabras clave separadas por coma",
+      "source_excerpt": "fragmento textual breve copiado literalmente del PLAN que sustenta este tema"
 
     }}
 
@@ -5198,19 +5288,20 @@ PLAN:
 
         if isinstance(parsed, dict) and isinstance(parsed.get("topics"), list) and parsed["topics"]:
 
-            return parsed
+            return _attach_plan_source_traceability(raw_text, parsed)
 
     except Exception:
 
         pass
 
-    return {"summary": "Plan cargado con extracción básica local.", "topics": fallback_topics}
+    return _attach_plan_source_traceability(raw_text, {"summary": "Plan cargado con extracción básica local.", "topics": fallback_topics})
 
 
 
 
 
 def save_analytic_plan(title, course, teacher_id, filename, raw_text, parsed, academic_context=None):
+    ensure_plan_source_traceability_schema()
 
     academic_context = academic_context or {}
 
@@ -5238,9 +5329,9 @@ def save_analytic_plan(title, course, teacher_id, filename, raw_text, parsed, ac
 
         execute("""
 
-            INSERT INTO plan_topics(plan_id, unit_name, topic, subtopic, learning_outcome, bloom_level, keywords)
+            INSERT INTO plan_topics(plan_id, unit_name, topic, subtopic, learning_outcome, bloom_level, keywords, source_excerpt, source_locator)
 
-            VALUES(%s,%s,%s,%s,%s,%s,%s)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
 
         """, (
 
@@ -5257,6 +5348,8 @@ def save_analytic_plan(title, course, teacher_id, filename, raw_text, parsed, ac
             item.get("bloom_level",""),
 
             item.get("keywords",""),
+            item.get("source_excerpt",""),
+            item.get("source_locator",""),
 
         ))
 
@@ -8553,6 +8646,9 @@ def render_teacher_plan_manager(user):
     st.write(f"**Resultado de aprendizaje:** {selected_topic.get('learning_outcome') or '—'}")
 
     st.write(f"**Bloom:** {selected_topic.get('bloom_level') or '—'}")
+    st.write(f"**Fuente documental:** {selected_topic.get('source_locator') or '-'}")
+    if selected_topic.get("source_excerpt"):
+        st.caption("Evidencia documental: " + str(selected_topic.get("source_excerpt")))
 
 
 
