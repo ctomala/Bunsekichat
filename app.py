@@ -5653,7 +5653,113 @@ def update_question_bank_item(item_id, payload, actor_id):
 
 
 
+# BUNSEKI_R4_GOLD_GOVERNANCE_V1
+def ensure_question_bank_gold_schema():
+    execute(
+        "ALTER TABLE IF EXISTS question_bank_items "
+        "ADD COLUMN IF NOT EXISTS governance_level TEXT NOT NULL DEFAULT 'practice'"
+    )
+    execute(
+        "ALTER TABLE IF EXISTS question_bank_items "
+        "ADD COLUMN IF NOT EXISTS gold_by INTEGER REFERENCES users(id) ON DELETE SET NULL"
+    )
+    execute(
+        "ALTER TABLE IF EXISTS question_bank_items "
+        "ADD COLUMN IF NOT EXISTS gold_at TEXT"
+    )
+    execute(
+        "UPDATE question_bank_items "
+        "SET governance_level='validated' "
+        "WHERE status='approved' AND governance_level='practice'"
+    )
+    execute(
+        "DO $$ BEGIN "
+        "IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+        "WHERE conname='question_bank_items_governance_level_check') THEN "
+        "ALTER TABLE question_bank_items "
+        "ADD CONSTRAINT question_bank_items_governance_level_check "
+        "CHECK (governance_level IN ('practice','validated','gold')); "
+        "END IF; END $$;"
+    )
+
+
+def promote_question_bank_item_to_gold(item_id, actor_id):
+    ensure_question_bank_gold_schema()
+
+    if not actor_can_manage_question_bank_item(item_id, actor_id):
+        raise ValueError("No tienes autorización para promover esta pregunta a Gold.")
+
+    item = fetchone(
+        "SELECT q.*, pt.source_excerpt, pt.source_locator, ap.raw_text "
+        "FROM question_bank_items q "
+        "JOIN plan_topics pt ON pt.id=q.plan_topic_id "
+        "JOIN analytic_plans ap ON ap.id=q.plan_id "
+        "WHERE q.id=%s",
+        (item_id,),
+    )
+
+    if not item:
+        raise ValueError("No se encontró la pregunta o su trazabilidad curricular.")
+
+    if item.get("status") != "approved":
+        raise ValueError("Solo una pregunta aprobada puede promoverse a Gold.")
+
+    if item.get("governance_level") == "gold":
+        raise ValueError("La pregunta ya pertenece al Banco Gold.")
+
+    if item.get("governance_level") != "validated":
+        raise ValueError("La pregunta debe estar validada antes de promoverse a Gold.")
+
+    required_fields = {
+        "plan_topic_id": item.get("plan_topic_id"),
+        "learning_outcome": item.get("learning_outcome"),
+        "bloom_level": item.get("bloom_level"),
+        "difficulty_level": item.get("difficulty_level"),
+    }
+    missing = [
+        field
+        for field, value in required_fields.items()
+        if value is None or not str(value).strip()
+    ]
+    if missing:
+        raise ValueError(
+            "No puede promoverse a Gold: faltan campos curriculares: "
+            + ", ".join(missing)
+            + "."
+        )
+
+    excerpt = _normalize_source_trace_text(item.get("source_excerpt"))
+    raw_text = _normalize_source_trace_text(item.get("raw_text"))
+    locator = str(item.get("source_locator") or "").strip()
+
+    if not excerpt or not raw_text or excerpt.casefold() not in raw_text.casefold():
+        raise ValueError(
+            "No puede promoverse a Gold: la evidencia documental no es verificable "
+            "contra el plan analítico original."
+        )
+
+    if not re.fullmatch(r"Lineas \d+-\d+", locator):
+        raise ValueError(
+            "No puede promoverse a Gold: el localizador documental no es válido."
+        )
+
+    promoted = execute(
+        "UPDATE question_bank_items "
+        "SET governance_level='gold', gold_by=%s, gold_at=%s, updated_at=%s "
+        "WHERE id=%s AND status='approved' AND governance_level='validated' "
+        "RETURNING *",
+        (actor_id, now(), now(), item_id),
+        returning=True,
+    )
+
+    if not promoted:
+        raise ValueError("La promoción a Gold no pudo completarse.")
+
+    return promoted
+
+
 def approve_question_bank_item(item_id, approved_by):
+    ensure_question_bank_gold_schema()
 
     if not actor_can_manage_question_bank_item(item_id, approved_by):
 
@@ -5663,7 +5769,7 @@ def approve_question_bank_item(item_id, approved_by):
 
         UPDATE question_bank_items
 
-        SET status='approved', approved_by=%s, approved_at=%s, updated_at=%s
+        SET status='approved', governance_level='validated', approved_by=%s, approved_at=%s, updated_at=%s
 
         WHERE id=%s AND status='draft'
 
@@ -8506,6 +8612,7 @@ def render_final_survey(user, posttest_quiz):
 
 
 def render_teacher_plan_manager(user):
+    ensure_question_bank_gold_schema()
 
     st.markdown("""
 
@@ -8768,10 +8875,79 @@ def render_teacher_plan_manager(user):
 
         approved_df = pd.DataFrame(approved)
 
-        visible = [column for column in ["unit_name", "topic", "learning_outcome", "bloom_level", "difficulty_level", "question", "approved_at"] if column in approved_df.columns]
+        visible = [column for column in ["unit_name", "topic", "learning_outcome", "bloom_level", "difficulty_level", "question", "governance_level", "approved_at", "gold_at"] if column in approved_df.columns]
 
         st.dataframe(approved_df[visible], use_container_width=True, height=300)
 
+
+
+    st.markdown("### Gobernanza Gold")
+    st.caption(
+        "Gold es una capa adicional sobre preguntas aprobadas. "
+        "Exige trazabilidad curricular y evidencia documental verificable."
+    )
+
+    gold_items = [
+        item for item in approved
+        if (item.get("governance_level") or "") == "gold"
+    ]
+    gold_candidates = [
+        item for item in approved
+        if (item.get("governance_level") or "") == "validated"
+    ]
+
+    if gold_candidates:
+        gold_candidate_id = st.selectbox(
+            "Pregunta validada para promover a Gold",
+            [item["id"] for item in gold_candidates],
+            format_func=lambda item_id: next(
+                f"#{item_id} · {item['topic']} · {item['question'][:70]}"
+                for item in gold_candidates
+                if item["id"] == item_id
+            ),
+            key=f"gold_candidate_{plan_id}",
+        )
+        if st.button(
+            "Promover a Banco Gold",
+            key=f"promote_gold_{plan_id}",
+        ):
+            try:
+                promote_question_bank_item_to_gold(
+                    int(gold_candidate_id),
+                    user["id"],
+                )
+                st.success(
+                    "Pregunta promovida a Gold con trazabilidad curricular verificada."
+                )
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
+    else:
+        st.caption("No hay preguntas validadas pendientes de promoción a Gold.")
+
+    if gold_items:
+        gold_df = pd.DataFrame(gold_items)
+        gold_visible = [
+            column
+            for column in [
+                "unit_name",
+                "topic",
+                "learning_outcome",
+                "bloom_level",
+                "difficulty_level",
+                "question",
+                "gold_at",
+            ]
+            if column in gold_df.columns
+        ]
+        st.markdown("#### Banco Gold")
+        st.dataframe(
+            gold_df[gold_visible],
+            use_container_width=True,
+            height=260,
+        )
+    else:
+        st.caption("El Banco Gold todavía no contiene preguntas.")
 
 
     st.markdown("### Crear evaluación desde banco aprobado")
