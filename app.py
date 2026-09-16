@@ -5758,6 +5758,199 @@ def promote_question_bank_item_to_gold(item_id, actor_id):
     return promoted
 
 
+# BUNSEKI_R5_MOODLE_XML_EXPORT_V1
+def get_gold_question_bank_items_for_moodle(plan_id):
+    ensure_question_bank_gold_schema()
+    return fetchall(
+        "SELECT q.*, pt.source_excerpt, pt.source_locator, "
+        "ap.title AS plan_title "
+        "FROM question_bank_items q "
+        "JOIN plan_topics pt ON pt.id=q.plan_topic_id "
+        "JOIN analytic_plans ap ON ap.id=q.plan_id "
+        "WHERE q.plan_id=%s "
+        "AND q.status='approved' "
+        "AND q.governance_level='gold' "
+        "ORDER BY q.id",
+        (plan_id,),
+    )
+
+
+def build_moodle_xml_from_gold_items(plan_id):
+    import xml.etree.ElementTree as ET
+
+    rows = get_gold_question_bank_items_for_moodle(plan_id)
+    if not rows:
+        raise ValueError("No existen preguntas Gold para exportar.")
+
+    plan_title = str(rows[0].get("plan_title") or f"Plan {plan_id}").strip()
+    quiz = ET.Element("quiz")
+
+    category_question = ET.SubElement(
+        quiz,
+        "question",
+        {"type": "category"},
+    )
+    category = ET.SubElement(category_question, "category")
+    ET.SubElement(category, "text").text = (
+        f"$course$/top/BunsekiChat/{plan_title}"
+    )
+
+    exported_count = 0
+
+    for item in rows:
+        if item.get("status") != "approved":
+            continue
+        if item.get("governance_level") != "gold":
+            continue
+
+        try:
+            options = json.loads(item.get("options_json") or "[]")
+        except Exception as exc:
+            raise ValueError(
+                f"La pregunta #{item.get('id')} tiene opciones JSON inválidas."
+            ) from exc
+
+        if not isinstance(options, list) or len(options) < 2:
+            raise ValueError(
+                f"La pregunta #{item.get('id')} no tiene suficientes opciones."
+            )
+
+        options = [str(option) for option in options]
+
+        def normalize_answer(value):
+            return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
+
+        correct_answer = normalize_answer(item.get("correct_answer"))
+        matches = [
+            option
+            for option in options
+            if normalize_answer(option) == correct_answer
+        ]
+
+        if len(matches) != 1:
+            raise ValueError(
+                f"La respuesta correcta de la pregunta #{item.get('id')} "
+                "no coincide de forma única con sus opciones."
+            )
+
+        correct_option = matches[0]
+
+        question = ET.SubElement(
+            quiz,
+            "question",
+            {"type": "multichoice"},
+        )
+
+        name = ET.SubElement(question, "name")
+        ET.SubElement(name, "text").text = (
+            f"Bunseki Gold #{item.get('id')} - "
+            f"{item.get('topic') or 'Pregunta'}"
+        )
+
+        questiontext = ET.SubElement(
+            question,
+            "questiontext",
+            {"format": "html"},
+        )
+        ET.SubElement(questiontext, "text").text = str(
+            item.get("question") or ""
+        )
+
+        generalfeedback = ET.SubElement(
+            question,
+            "generalfeedback",
+            {"format": "html"},
+        )
+        ET.SubElement(generalfeedback, "text").text = str(
+            item.get("explanation") or ""
+        )
+
+        ET.SubElement(question, "defaultgrade").text = "1.0000000"
+        ET.SubElement(question, "penalty").text = "0.3333333"
+        ET.SubElement(question, "hidden").text = "0"
+        ET.SubElement(question, "single").text = "true"
+        ET.SubElement(question, "shuffleanswers").text = "true"
+        ET.SubElement(question, "answernumbering").text = "abc"
+
+        correctfeedback = ET.SubElement(
+            question,
+            "correctfeedback",
+            {"format": "html"},
+        )
+        ET.SubElement(correctfeedback, "text").text = "Respuesta correcta."
+
+        partiallycorrectfeedback = ET.SubElement(
+            question,
+            "partiallycorrectfeedback",
+            {"format": "html"},
+        )
+        ET.SubElement(partiallycorrectfeedback, "text").text = (
+            "Revisa la retroalimentación general."
+        )
+
+        incorrectfeedback = ET.SubElement(
+            question,
+            "incorrectfeedback",
+            {"format": "html"},
+        )
+        ET.SubElement(incorrectfeedback, "text").text = (
+            "Revisa el razonamiento y vuelve a intentarlo."
+        )
+
+        tags = ET.SubElement(question, "tags")
+        tag_values = [
+            "BunsekiChat",
+            "Gold",
+            f"Bloom:{item.get('bloom_level') or ''}",
+            f"Dificultad:{item.get('difficulty_level') or ''}",
+            f"Tema:{item.get('topic') or ''}",
+        ]
+        for tag_value in tag_values:
+            if not tag_value.endswith(":") and tag_value.strip():
+                tag = ET.SubElement(tags, "tag")
+                ET.SubElement(tag, "text").text = tag_value.strip()
+
+        for option in options:
+            fraction = "100" if option == correct_option else "0"
+            answer = ET.SubElement(
+                question,
+                "answer",
+                {"fraction": fraction, "format": "html"},
+            )
+            ET.SubElement(answer, "text").text = option
+            feedback = ET.SubElement(
+                answer,
+                "feedback",
+                {"format": "html"},
+            )
+            ET.SubElement(feedback, "text").text = (
+                "Respuesta correcta."
+                if fraction == "100"
+                else "Opción incorrecta."
+            )
+
+        exported_count += 1
+
+    if exported_count == 0:
+        raise ValueError("No se encontró ninguna pregunta Gold exportable.")
+
+    xml_bytes = ET.tostring(
+        quiz,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+    ET.fromstring(xml_bytes)
+
+    safe_title = re.sub(
+        r"[^A-Za-z0-9._-]+",
+        "_",
+        plan_title,
+    ).strip("._") or f"plan_{plan_id}"
+
+    filename = f"{safe_title}_Bunseki_Gold_Moodle.xml"
+    return xml_bytes, filename, exported_count
+
+
 def approve_question_bank_item(item_id, approved_by):
     ensure_question_bank_gold_schema()
 
@@ -8946,6 +9139,24 @@ def render_teacher_plan_manager(user):
             use_container_width=True,
             height=260,
         )
+        try:
+            moodle_xml, moodle_filename, moodle_count = (
+                build_moodle_xml_from_gold_items(int(plan_id))
+            )
+            st.download_button(
+                f"Descargar Moodle XML ({moodle_count} Gold)",
+                moodle_xml,
+                moodle_filename,
+                "application/xml",
+                key=f"download_moodle_gold_{plan_id}",
+                use_container_width=True,
+            )
+            st.caption(
+                "Exporta únicamente preguntas Gold del plan en formato "
+                "Moodle XML multichoice."
+            )
+        except ValueError as exc:
+            st.warning(f"No se pudo preparar Moodle XML: {exc}")
     else:
         st.caption("El Banco Gold todavía no contiene preguntas.")
 
