@@ -5759,6 +5759,80 @@ def promote_question_bank_item_to_gold(item_id, actor_id):
 
 
 # BUNSEKI_R5_MOODLE_XML_EXPORT_V1
+# BUNSEKI_R7_MOODLE_PREVIEW_V1
+def render_moodle_gold_preview(gold_items):
+    st.markdown("#### Vista previa Moodle")
+    st.caption(
+        "Simulación docente de cómo se verá cada pregunta Gold antes de exportarla. "
+        "La importación final puede variar ligeramente según el tema de Moodle."
+    )
+
+    for position, item in enumerate(gold_items, 1):
+        try:
+            options = json.loads(item.get("options_json") or "[]")
+        except Exception:
+            options = []
+
+        if not isinstance(options, list):
+            options = []
+
+        options = [str(option) for option in options]
+        correct_answer = re.sub(
+            r"\s+",
+            " ",
+            str(item.get("correct_answer") or ""),
+        ).strip().casefold()
+
+        with st.expander(
+            f"Pregunta {position} · {item.get('topic') or 'Sin tema'}",
+            expanded=(position == 1),
+        ):
+            st.markdown(f"**{position}. {item.get('question') or ''}**")
+
+            if options:
+                for option_index, option in enumerate(options):
+                    label = chr(65 + option_index)
+                    st.write(f"○ {label}. {option}")
+            else:
+                st.warning("Esta pregunta no contiene opciones válidas.")
+
+            st.caption(
+                "Etiquetas Moodle: "
+                f"Gold · Bloom:{item.get('bloom_level') or '-'} · "
+                f"Dificultad:{item.get('difficulty_level') or '-'}"
+            )
+
+            correct_option = next(
+                (
+                    option
+                    for option in options
+                    if re.sub(r"\s+", " ", option).strip().casefold()
+                    == correct_answer
+                ),
+                None,
+            )
+
+            st.markdown("**Clave docente**")
+            if correct_option:
+                st.success(f"Respuesta correcta: {correct_option}")
+            else:
+                st.warning(
+                    "No se pudo identificar una respuesta correcta única "
+                    "para la vista previa."
+                )
+
+            explanation = str(item.get("explanation") or "").strip()
+            if explanation:
+                st.info(f"Retroalimentación: {explanation}")
+            else:
+                st.caption("Sin retroalimentación general registrada.")
+
+            st.caption(
+                f"Banco: Gold · ID #{item.get('id')} · "
+                f"Resultado de aprendizaje: {item.get('learning_outcome') or '-'}"
+            )
+
+
 def get_gold_question_bank_items_for_moodle(plan_id):
     ensure_question_bank_gold_schema()
     return fetchall(
@@ -9139,6 +9213,8 @@ def render_teacher_plan_manager(user):
             use_container_width=True,
             height=260,
         )
+        render_moodle_gold_preview(gold_items)
+
         try:
             moodle_xml, moodle_filename, moodle_count = (
                 build_moodle_xml_from_gold_items(int(plan_id))
