@@ -7899,6 +7899,220 @@ def _adaptive_practice_persist_active(
         return None
 
 
+
+# BUNSEKI_R8_21_6B_PARTIAL_ANSWER_AUTOSAVE
+
+def _adaptive_practice_answer_identity(
+    item,
+):
+    bank_question_id = item.get(
+        "bank_question_id"
+    )
+
+    if bank_question_id not in (
+        None,
+        "",
+    ):
+        return (
+            "bank:"
+            + str(int(bank_question_id))
+        )
+
+    item_code = str(
+        item.get("item_code")
+        or ""
+    ).strip()
+
+    if item_code:
+        return (
+            "item:"
+            + item_code
+        )
+
+    question = str(
+        item.get("question")
+        or ""
+    ).strip()
+
+    digest = hashlib.sha256(
+        question.encode("utf-8")
+    ).hexdigest()[:24]
+
+    return (
+        "question:"
+        + digest
+    )
+
+
+def _adaptive_practice_answer_question_key(
+    item,
+    serve_batch_key,
+):
+    identity = (
+        _adaptive_practice_answer_identity(
+            item
+        )
+    )
+
+    return (
+        "ai_practice:"
+        + str(serve_batch_key)
+        + ":"
+        + identity
+    )
+
+
+def _adaptive_practice_answer_widget_key(
+    user_id,
+    round_no,
+    item,
+    serve_batch_key,
+):
+    question_key = (
+        _adaptive_practice_answer_question_key(
+            item,
+            serve_batch_key,
+        )
+    )
+
+    digest = hashlib.sha256(
+        question_key.encode("utf-8")
+    ).hexdigest()[:16]
+
+    return (
+        f"practice_{int(user_id)}_"
+        f"{int(round_no)}_"
+        f"{digest}"
+    )
+
+
+def _adaptive_practice_load_saved_answers(
+    user_id,
+    attempt_id,
+):
+    if not attempt_id:
+        return {}
+
+    connection = conn()
+
+    try:
+        progress = (
+            resumable_load_attempt_progress(
+                connection,
+                attempt_id=int(attempt_id),
+                user_id=int(user_id),
+            )
+        )
+
+        return dict(
+            progress.get(
+                "answers_by_key"
+            )
+            or {}
+        )
+
+    except Exception:
+        return {}
+
+    finally:
+        connection.close()
+
+
+def _adaptive_practice_autosave_answer(
+    user_id,
+    attempt_id,
+    item,
+    position,
+    widget_key,
+    serve_batch_key,
+):
+    if not attempt_id:
+        return
+
+    value = st.session_state.get(
+        widget_key
+    )
+
+    if value is None:
+        return
+
+    uid = int(user_id)
+
+    question_key = (
+        _adaptive_practice_answer_question_key(
+            item,
+            serve_batch_key,
+        )
+    )
+
+    bank_question_id = item.get(
+        "bank_question_id"
+    )
+
+    payload = {
+        "value":
+            value,
+
+        "bank_question_id":
+            (
+                int(bank_question_id)
+                if bank_question_id
+                not in (None, "")
+                else None
+            ),
+
+        "item_code":
+            str(
+                item.get("item_code")
+                or ""
+            ),
+
+        "position":
+            int(position),
+
+        "serve_batch_key":
+            str(
+                serve_batch_key
+                or ""
+            ),
+    }
+
+    error_key = (
+        f"adaptive_practice_"
+        f"autosave_error_{uid}"
+    )
+
+    connection = conn()
+
+    try:
+        resumable_save_attempt_answer(
+            connection,
+            attempt_id=int(attempt_id),
+            user_id=uid,
+            question_key=question_key,
+            question_id=None,
+            answer_payload=payload,
+            elapsed_seconds=0,
+            current_position=int(position),
+        )
+
+        connection.commit()
+
+        st.session_state[
+            error_key
+        ] = None
+
+    except Exception as exc:
+        connection.rollback()
+
+        st.session_state[
+            error_key
+        ] = str(exc)
+
+    finally:
+        connection.close()
+
+
 def adaptive_practice_next_difficulty(current_difficulty, correct, total):
 
     current = normalize_adaptive_difficulty(current_difficulty)
@@ -15305,27 +15519,186 @@ def student_page(user):
 
 
 
-        with st.form(f"adaptive_practice_form_{practice_round}_{practice_difficulty}"):
+        practice_attempt_id = (
+            st.session_state.get(
+                f"adaptive_practice_attempt_id_{user['id']}"
+            )
+        )
 
-            practice_answers = {}
+        if not practice_attempt_id:
+            restored_active = (
+                _adaptive_practice_restore_active(
+                    user["id"]
+                )
+            )
 
-            for i, item in enumerate(practice_items, start=1):
-
-                options = item.get("options") or []
-
-                practice_answers[str(i)] = st.radio(
-
-                    f"{i}. [{item.get('bloom_level') or 'Comprender'}] {item.get('question')}",
-
-                    options,
-
-                    index=None,
-
-                    key=f"practice_{user['id']}_{practice_round}_{i}",
-
+            if restored_active:
+                practice_attempt_id = (
+                    restored_active.get(
+                        "attempt_id"
+                    )
                 )
 
-            practice_submit = st.form_submit_button("Revisar práctica", use_container_width=True)
+                if practice_attempt_id:
+                    st.session_state[
+                        (
+                            "adaptive_practice_"
+                            f"attempt_id_{user['id']}"
+                        )
+                    ] = int(
+                        practice_attempt_id
+                    )
+
+        practice_batch_key = (
+            _adaptive_practice_batch_key(
+                user["id"],
+                practice_topic,
+                practice_subtopic,
+                practice_difficulty,
+                practice_round,
+            )
+        )
+
+        practice_saved_answers = (
+            _adaptive_practice_load_saved_answers(
+                user["id"],
+                practice_attempt_id,
+            )
+        )
+
+        practice_answers = {}
+
+        recovered_answer_count = 0
+
+        autosave_error_key = (
+            "adaptive_practice_"
+            f"autosave_error_{user['id']}"
+        )
+
+        autosave_error = (
+            st.session_state.get(
+                autosave_error_key
+            )
+        )
+
+        if autosave_error:
+            st.warning(
+                "La última respuesta no pudo "
+                "guardarse automáticamente. "
+                "Puedes volver a seleccionarla."
+            )
+
+        for i, item in enumerate(
+            practice_items,
+            start=1,
+        ):
+            options = (
+                item.get("options")
+                or []
+            )
+
+            question_key = (
+                _adaptive_practice_answer_question_key(
+                    item,
+                    practice_batch_key,
+                )
+            )
+
+            widget_key = (
+                _adaptive_practice_answer_widget_key(
+                    user["id"],
+                    practice_round,
+                    item,
+                    practice_batch_key,
+                )
+            )
+
+            saved_row = (
+                practice_saved_answers.get(
+                    question_key
+                )
+            )
+
+            if (
+                widget_key
+                not in st.session_state
+                and saved_row
+            ):
+                payload = (
+                    saved_row.get(
+                        "answer_json"
+                    )
+                    or {}
+                )
+
+                if isinstance(
+                    payload,
+                    dict,
+                ):
+                    saved_value = (
+                        payload.get(
+                            "value"
+                        )
+                    )
+
+                    if saved_value in options:
+                        st.session_state[
+                            widget_key
+                        ] = saved_value
+
+                        recovered_answer_count += 1
+
+            practice_answers[
+                str(i)
+            ] = st.radio(
+                (
+                    f"{i}. "
+                    f"[{item.get('bloom_level') or 'Comprender'}] "
+                    f"{item.get('question')}"
+                ),
+                options,
+                index=None,
+                key=widget_key,
+                on_change=(
+                    _adaptive_practice_autosave_answer
+                ),
+                args=(
+                    user["id"],
+                    practice_attempt_id,
+                    item,
+                    i,
+                    widget_key,
+                    practice_batch_key,
+                ),
+            )
+
+        if recovered_answer_count:
+            st.caption(
+                "Progreso recuperado: "
+                f"{recovered_answer_count}/"
+                f"{len(practice_items)} "
+                "respuestas guardadas."
+            )
+
+        elif any(
+            value is not None
+            for value in practice_answers.values()
+        ):
+            st.caption(
+                "Guardado automático activo."
+            )
+
+        practice_submit = st.button(
+            "Revisar práctica",
+            key=(
+                "adaptive_practice_submit_"
+                f"{user['id']}_"
+                f"{practice_round}_"
+                f"{practice_difficulty}"
+            ),
+            use_container_width=True,
+        )
+
 
 
 
