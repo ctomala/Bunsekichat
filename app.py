@@ -7476,6 +7476,429 @@ def adaptive_questions_for_difficulty(questions, difficulty):
 
 
 
+
+# BUNSEKI_R8_21_5D_RESUMABLE_ACTIVE_PRACTICE
+
+_ADAPTIVE_PRACTICE_ACTIVE_SOURCE_KEY = (
+    "adaptive_practice:active"
+)
+
+
+def _adaptive_practice_batch_key(
+    user_id,
+    topic,
+    subtopic,
+    difficulty,
+    round_no,
+):
+    difficulty = normalize_adaptive_difficulty(
+        difficulty
+    )
+
+    return hashlib.sha256(
+        (
+            f"r8.21|{int(user_id)}|"
+            f"{topic}|{subtopic}|"
+            f"{difficulty}|{int(round_no)}"
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _adaptive_practice_restore_active(
+    user_id,
+):
+    try:
+        row = fetchone(
+            """
+            SELECT
+                id,
+                metadata_json,
+                resume_count
+            FROM public.assessment_attempts
+            WHERE user_id=%s
+              AND assessment_kind='practice'
+              AND source_key=%s
+              AND status='in_progress'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (
+                int(user_id),
+                _ADAPTIVE_PRACTICE_ACTIVE_SOURCE_KEY,
+            ),
+        )
+    except Exception:
+        return None
+
+    if not row:
+        return None
+
+    metadata = (
+        row.get("metadata_json")
+        or {}
+    )
+
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except Exception:
+            return None
+
+    if not isinstance(metadata, dict):
+        return None
+
+    topic = str(
+        metadata.get("topic")
+        or ""
+    ).strip()
+
+    subtopic = str(
+        metadata.get("subtopic")
+        or ""
+    ).strip()
+
+    level_choice = str(
+        metadata.get("level_choice")
+        or "Recomendado"
+    ).strip()
+
+    difficulty = normalize_adaptive_difficulty(
+        metadata.get("difficulty")
+        or "Básico"
+    )
+
+    try:
+        round_no = max(
+            1,
+            int(
+                metadata.get("round")
+                or 1
+            ),
+        )
+    except Exception:
+        round_no = 1
+
+    if not topic or not subtopic:
+        return None
+
+    result = metadata.get("result")
+
+    if not isinstance(
+        result,
+        (dict, type(None)),
+    ):
+        result = None
+
+    return {
+        "attempt_id": int(row["id"]),
+        "topic": topic,
+        "subtopic": subtopic,
+        "level_choice": level_choice,
+        "difficulty": difficulty,
+        "round": round_no,
+        "selection_signature": str(
+            metadata.get(
+                "selection_signature"
+            )
+            or (
+                f"{topic}|"
+                f"{subtopic}|"
+                f"{level_choice}"
+            )
+        ),
+        "serve_batch_key": str(
+            metadata.get(
+                "serve_batch_key"
+            )
+            or ""
+        ),
+        "result": result,
+    }
+
+
+def _adaptive_practice_hydrate_session(
+    user,
+):
+    uid = int(user["id"])
+
+    checked_key = (
+        f"adaptive_practice_db_restore_"
+        f"checked_{uid}"
+    )
+
+    if st.session_state.get(
+        checked_key
+    ):
+        return False
+
+    st.session_state[
+        checked_key
+    ] = True
+
+    restored = (
+        _adaptive_practice_restore_active(
+            uid
+        )
+    )
+
+    if not restored:
+        return False
+
+    topic = restored["topic"]
+    subtopic = restored["subtopic"]
+    level_choice = restored[
+        "level_choice"
+    ]
+
+    topic_slug = (
+        strip_accents(topic)
+        .lower()
+    )
+
+    subtopic_slug = (
+        strip_accents(subtopic)
+        .lower()
+    )
+
+    st.session_state[
+        f"adaptive_practice_topic_value_{uid}"
+    ] = topic
+
+    st.session_state[
+        (
+            f"adaptive_practice_subtopic_value_"
+            f"{uid}_{topic_slug}"
+        )
+    ] = subtopic
+
+    st.session_state[
+        (
+            f"adaptive_practice_level_value_"
+            f"{uid}_{topic_slug}_"
+            f"{subtopic_slug}"
+        )
+    ] = level_choice
+
+    practice_key = (
+        f"adaptive_practice_state_{uid}_"
+        f"{topic_slug}_"
+        f"{subtopic_slug}"
+    )
+
+    st.session_state[
+        practice_key
+    ] = {
+        "difficulty":
+            restored["difficulty"],
+
+        "round":
+            restored["round"],
+
+        "result":
+            restored["result"],
+
+        "selection_signature":
+            restored[
+                "selection_signature"
+            ],
+
+        # Items are intentionally rebuilt from
+        # ai_practice_question_serves.
+        # Same user + topic + subtopic +
+        # difficulty + round => same batch key.
+        "items": [],
+
+        "items_signature": None,
+    }
+
+    st.session_state[
+        f"adaptive_practice_restored_{uid}"
+    ] = True
+
+    return True
+
+
+def _adaptive_practice_persist_active(
+    user_id,
+    topic,
+    subtopic,
+    level_choice,
+    difficulty,
+    practice_state,
+):
+    uid = int(user_id)
+
+    try:
+        round_no = max(
+            1,
+            int(
+                practice_state.get(
+                    "round"
+                )
+                or 1
+            ),
+        )
+
+        effective_difficulty = (
+            normalize_adaptive_difficulty(
+                practice_state.get(
+                    "difficulty"
+                )
+                or difficulty
+            )
+        )
+
+        selection_signature = str(
+            practice_state.get(
+                "selection_signature"
+            )
+            or (
+                f"{topic}|"
+                f"{subtopic}|"
+                f"{level_choice}"
+            )
+        )
+
+        batch_key = (
+            _adaptive_practice_batch_key(
+                uid,
+                topic,
+                subtopic,
+                effective_difficulty,
+                round_no,
+            )
+        )
+
+        result = practice_state.get(
+            "result"
+        )
+
+        if not isinstance(
+            result,
+            (dict, type(None)),
+        ):
+            result = None
+
+        metadata = {
+            "schema_version":
+                "r8.21.5",
+
+            "practice_type":
+                "adaptive_practice",
+
+            "topic":
+                str(topic),
+
+            "subtopic":
+                str(subtopic),
+
+            "level_choice":
+                str(level_choice),
+
+            "difficulty":
+                effective_difficulty,
+
+            "round":
+                round_no,
+
+            "selection_signature":
+                selection_signature,
+
+            "serve_batch_key":
+                batch_key,
+
+            "result":
+                result,
+        }
+
+        connection = conn()
+
+        try:
+            attempt = (
+                resumable_get_or_create_attempt(
+                    connection,
+                    user_id=uid,
+                    assessment_kind="practice",
+                    source_key=(
+                        _ADAPTIVE_PRACTICE_ACTIVE_SOURCE_KEY
+                    ),
+                    metadata=metadata,
+                )
+            )
+
+            attempt_id = int(
+                attempt["id"]
+            )
+
+            with connection.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE
+                        public.assessment_attempts
+                    SET
+                        metadata_json=%s::jsonb,
+                        last_activity_at=
+                            CURRENT_TIMESTAMP,
+                        updated_at=
+                            CURRENT_TIMESTAMP
+                    WHERE id=%s
+                      AND user_id=%s
+                      AND assessment_kind=
+                          'practice'
+                      AND status=
+                          'in_progress'
+                    """,
+                    (
+                        json.dumps(
+                            metadata,
+                            ensure_ascii=False,
+                        ),
+                        attempt_id,
+                        uid,
+                    ),
+                )
+
+            connection.commit()
+
+        except Exception:
+            connection.rollback()
+            raise
+
+        finally:
+            connection.close()
+
+        st.session_state[
+            (
+                f"adaptive_practice_attempt_"
+                f"id_{uid}"
+            )
+        ] = attempt_id
+
+        st.session_state[
+            (
+                f"adaptive_practice_last_"
+                f"persisted_signature_{uid}"
+            )
+        ] = (
+            f"{selection_signature}|"
+            f"{effective_difficulty}|"
+            f"{round_no}|"
+            f"{batch_key}|"
+            f"{json.dumps(result, sort_keys=True)}"
+        )
+
+        return attempt_id
+
+    except Exception:
+        st.warning(
+            "La práctica puede continuar, "
+            "pero no fue posible guardar "
+            "su continuidad para una "
+            "sesión futura."
+        )
+        return None
+
+
 def adaptive_practice_next_difficulty(current_difficulty, correct, total):
 
     current = normalize_adaptive_difficulty(current_difficulty)
@@ -14630,6 +15053,8 @@ def student_page(user):
 
         practice_topics = list(TOPICS.keys())
 
+        _adaptive_practice_hydrate_session(user)
+
         default_practice_topic = topic if topic in practice_topics else practice_topics[0]
 
         topic_state_key = f"adaptive_practice_topic_{user['id']}"
@@ -14842,6 +15267,15 @@ def student_page(user):
                             )
                 practice_state["items"] = practice_items
                 practice_state["items_signature"] = practice_items_signature
+
+                _adaptive_practice_persist_active(
+                    user["id"],
+                    practice_topic,
+                    practice_subtopic,
+                    practice_level_choice,
+                    practice_difficulty,
+                    practice_state,
+                )
         except Exception as practice_generation_error:
             st.error(
                 "No se pudo preparar una práctica verificada para "
@@ -14981,6 +15415,15 @@ def student_page(user):
 
                 st.session_state[practice_key] = practice_state
 
+                _adaptive_practice_persist_active(
+                    user["id"],
+                    practice_topic,
+                    practice_subtopic,
+                    practice_level_choice,
+                    practice_difficulty,
+                    practice_state,
+                )
+
                 log_location_event(
 
                     user["id"],
@@ -15092,6 +15535,15 @@ def student_page(user):
                 practice_state["result"] = None
 
                 st.session_state[practice_key] = practice_state
+
+                _adaptive_practice_persist_active(
+                    user["id"],
+                    practice_topic,
+                    practice_subtopic,
+                    practice_level_choice,
+                    practice_difficulty,
+                    practice_state,
+                )
 
                 st.rerun()
 
