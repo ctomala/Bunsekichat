@@ -3345,9 +3345,25 @@ def normalize_course_level(value):
 
 
 
+# BUNSEKI_R8_21_9C_INSTITUTIONAL_PARALLEL
 def normalize_parallel(value):
+    value = normalize_spaces(value).upper()
+    match = re.fullmatch(
+        r"PMF-S-MA-(\d+)-(\d+)\s*A\s*([12])",
+        value,
+    )
+    if match:
+        return f"PMF-S-MA-{match.group(1)}-{match.group(2)} A{match.group(3)}"
+    return value.replace(" ", "")
 
-    return normalize_spaces(value).upper().replace(" ", "")
+
+def extract_institutional_parallel(value):
+    match = re.search(
+        r"PMF-S-MA-\d+-\d+\s*A\s*[12]",
+        str(value or ""),
+        flags=re.I,
+    )
+    return normalize_parallel(match.group(0)) if match else ""
 
 
 
@@ -3384,45 +3400,62 @@ def unique_values(values, normalizer=normalize_academic_text):
 
 
 def parse_course_label(course):
-
     course = normalize_spaces(course)
 
     if not course:
-
         return {}
 
+    institutional = re.fullmatch(
+        r"(PMF-S-MA-(\d+)-\d+\s*A\s*[12])(?:\s+(.+))?",
+        course,
+        flags=re.I,
+    )
+
+    if institutional:
+        return {
+            "course_level": normalize_course_level(institutional.group(2)),
+            "parallel": normalize_parallel(institutional.group(1)),
+            "shift": normalize_shift(institutional.group(3) or ""),
+        }
+
     parts = course.split()
-
     shift = parts[-1].title() if parts else ""
-
     code = " ".join(parts[:-1]) if len(parts) > 1 else course
 
     if "-" in code:
-
         level, parallel = code.split("-", 1)
-
         return {
-
             "course_level": normalize_course_level(level),
-
             "parallel": normalize_parallel(parallel),
-
             "shift": normalize_shift(shift),
-
         }
 
-    return {"course_level": normalize_course_level(code), "parallel": "", "shift": normalize_shift(shift)}
+    return {
+        "course_level": normalize_course_level(code),
+        "parallel": "",
+        "shift": normalize_shift(shift),
+    }
 
 
 
 
 
 def build_course_label(course_level, parallel, shift):
+    course_level = normalize_course_level(course_level)
+    parallel = normalize_parallel(parallel)
 
-    code = "-".join([x for x in [normalize_course_level(course_level), normalize_parallel(parallel)] if x])
+    if re.fullmatch(r"PMF-S-MA-\d+-\d+\s+A[12]", parallel):
+        code = parallel
+    else:
+        code = "-".join(
+            [
+                value
+                for value in [course_level, parallel]
+                if value
+            ]
+        )
 
     shift = normalize_shift(shift)
-
     return normalize_spaces(f"{code} {shift}") if shift else code
 
 
@@ -10694,6 +10727,9 @@ def render_teacher_plan_manager(user):
             else:
 
                 parsed = parse_plan_topics_with_ai(raw_text, title)
+                detected_parallel = extract_institutional_parallel(raw_text)
+                effective_parallel = detected_parallel or normalize_parallel(parallel)
+                effective_course = build_course_label(course_level, effective_parallel, shift)
 
                 academic_context = {
 
@@ -10701,15 +10737,17 @@ def render_teacher_plan_manager(user):
 
                     "course_level": normalize_course_level(course_level),
 
-                    "parallel": normalize_parallel(parallel),
+                    "parallel": effective_parallel,
 
                     "shift": normalize_shift(shift),
 
-                    "cohort": course,
+                    "cohort": effective_course,
 
                 }
 
-                plan_id = save_analytic_plan(title.strip(), course.strip(), user.get("id"), uploaded.name if uploaded else "", raw_text, parsed, academic_context)
+                plan_id = save_analytic_plan(title.strip(), effective_course.strip(), user.get("id"), uploaded.name if uploaded else "", raw_text, parsed, academic_context)
+                if detected_parallel:
+                    st.caption(f"Paralelo institucional detectado: {detected_parallel}")
 
                 st.success(f"Plan guardado correctamente. ID: {plan_id}. Temas extraídos: {len(parsed.get('topics', []))}")
 
