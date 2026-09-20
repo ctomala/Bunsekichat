@@ -10562,17 +10562,22 @@ def render_final_survey(user, posttest_quiz):
 def render_teacher_plan_manager(user):
     ensure_question_bank_gold_schema()
 
-    st.markdown("""
+    # BUNSEKI_R8_21_7D_PLAN_MANAGER_HTML_HEADER
+    plan_header_html = (
+        "<div class='eval-hero'>"
+        "<h2>\U0001F4DA Planes anal\u00edticos inteligentes</h2>"
+        "<p>"
+        "Carga planes anal\u00edticos, s\u00edlabos o contenidos. "
+        "BunsekiChat extrae temas, resultados de aprendizaje "
+        "y niveles Bloom para crear evaluaciones adaptativas."
+        "</p>"
+        "</div>"
+    )
 
-    <div class='eval-hero'>
-
-        <h2>📚 Planes analíticos inteligentes</h2>
-
-        <p>Carga planes analíticos, sílabos o contenidos. BunsekiChat extrae temas, resultados de aprendizaje y niveles Bloom para crear evaluaciones adaptativas.</p>
-
-    </div>
-
-    """, unsafe_allow_html=True)
+    st.markdown(
+        plan_header_html,
+        unsafe_allow_html=True,
+    )
 
 
 
