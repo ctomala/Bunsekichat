@@ -5249,11 +5249,12 @@ def ensure_plan_source_traceability_schema():
     execute("ALTER TABLE IF EXISTS plan_topics ADD COLUMN IF NOT EXISTS source_excerpt TEXT")
     execute("ALTER TABLE IF EXISTS plan_topics ADD COLUMN IF NOT EXISTS source_locator TEXT")
 
+# BUNSEKI_R8_21_9A_CURRICULUM_FIDELITY_PARSER
 def parse_plan_topics_with_ai(raw_text: str, title: str = "") -> dict:
 
     """Convierte un plan analítico en unidades/temas/resultados. Usa el servicio generativo si hay API; si no, fallback robusto."""
 
-    raw_text = (raw_text or "")[:24000]
+    raw_text = (raw_text or "")[:60000]
 
     fallback_topics = []
 
@@ -5281,7 +5282,7 @@ def parse_plan_topics_with_ai(raw_text: str, title: str = "") -> dict:
 
             })
 
-        if len(fallback_topics) >= 12:
+        if len(fallback_topics) >= 80:
 
             break
 
@@ -5346,7 +5347,25 @@ Analiza este plan analítico y devuelve SOLO JSON válido con esta estructura:
 
 }}
 
-Máximo 18 topics. No uses markdown.
+FIDELIDAD CURRICULAR OBLIGATORIA:
+1. Recorre las unidades y contenidos en el mismo orden del PLAN.
+2. Cada contenido académico explícitamente enumerado o listado debe aparecer representado en topics.
+3. No fusiones contenidos académicos diferentes únicamente para reducir el número de filas.
+4. Conserva los nombres específicos presentes en el PLAN.
+5. Si aparecen Teorema de Pitágoras, Ley del paralelogramo, Determinantes, Matriz inversa u otros contenidos explícitos, deben permanecer identificables en la salida.
+6. No sustituyas contenidos específicos por categorías genéricas si eso provoca la pérdida del nombre original.
+7. Usa unit_name para la unidad oficial del documento.
+8. Usa topic para el núcleo o título temático de la unidad.
+9. Usa subtopic para cada contenido académico atómico. Conserva de manera fiel el nombre utilizado en el PLAN.
+10. Un contenido numerado distinto debe generar una fila distinta cuando represente un contenido académico.
+11. Si un contenido contiene tipos, métodos o conceptos independientes, conserva todos sus nombres.
+12. Las instrucciones administrativas, políticas del curso y sistema de puntuación no deben convertirse en contenidos académicos.
+13. No inventes contenidos que no estén sustentados por el PLAN.
+14. learning_outcome debe corresponder al contenido académico concreto.
+15. bloom_level debe usar únicamente Recordar, Comprender, Aplicar, Analizar, Evaluar o Crear.
+16. Antes de responder realiza una auditoría interna de cobertura para comprobar que ningún contenido curricular explícito haya desaparecido.
+17. Puedes devolver hasta 80 topics. Nunca fusiones contenidos únicamente para cumplir un límite.
+Devuelve SOLO JSON válido. No uses markdown.
 
 
 
