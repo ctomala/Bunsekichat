@@ -5046,64 +5046,115 @@ def _safe_json_loads(raw, default):
 
 
 def read_uploaded_plan_text(uploaded_file) -> str:
-
-    """Extrae texto de TXT, DOCX o PDF sin romper la app si falta una librería."""
-
+    # BUNSEKI_R8_21_8A_ROBUST_PLAN_DOCUMENT_READER
     if uploaded_file is None:
-
         return ""
 
-    name = uploaded_file.name.lower()
+    name = str(uploaded_file.name or "").lower()
 
     data = uploaded_file.read()
-
     uploaded_file.seek(0)
 
-    if name.endswith(".txt") or name.endswith(".md"):
+    if not data:
+        return ""
 
-        return data.decode("utf-8", errors="ignore")
+    if name.endswith(".txt") or name.endswith(".md"):
+        return data.decode(
+            "utf-8",
+            errors="ignore",
+        ).strip()
 
     if name.endswith(".docx"):
-
         if Document is None:
-
             return ""
 
         try:
-
             doc = Document(BytesIO(data))
 
-            return "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+            extracted = []
+
+            for paragraph in doc.paragraphs:
+                text = re.sub(
+                    r"\s+",
+                    " ",
+                    str(paragraph.text or ""),
+                ).strip()
+
+                if text:
+                    extracted.append(text)
+
+            for table in doc.tables:
+                for row in table.rows:
+                    row_values = []
+                    previous = None
+
+                    for cell in row.cells:
+                        value = re.sub(
+                            r"\s+",
+                            " ",
+                            str(cell.text or ""),
+                        ).strip()
+
+                        if value and value != previous:
+                            row_values.append(value)
+
+                        previous = value
+
+                    if row_values:
+                        extracted.append(
+                            " | ".join(row_values)
+                        )
+
+            return "\n".join(extracted).strip()
 
         except Exception:
-
             return ""
 
     if name.endswith(".pdf"):
-
         try:
-
             from pypdf import PdfReader
 
             reader = PdfReader(BytesIO(data))
 
-            return "\n".join([(page.extract_text() or "") for page in reader.pages])
+            pages = []
+
+            for page in reader.pages:
+                text = (
+                    page.extract_text()
+                    or ""
+                ).strip()
+
+                if text:
+                    pages.append(text)
+
+            return "\n".join(pages).strip()
 
         except Exception:
-
             try:
-
                 from PyPDF2 import PdfReader
 
                 reader = PdfReader(BytesIO(data))
 
-                return "\n".join([(page.extract_text() or "") for page in reader.pages])
+                pages = []
+
+                for page in reader.pages:
+                    text = (
+                        page.extract_text()
+                        or ""
+                    ).strip()
+
+                    if text:
+                        pages.append(text)
+
+                return "\n".join(pages).strip()
 
             except Exception:
-
                 return ""
 
-    return data.decode("utf-8", errors="ignore")
+    return data.decode(
+        "utf-8",
+        errors="ignore",
+    ).strip()
 
 
 

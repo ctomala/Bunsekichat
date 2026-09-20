@@ -12,5 +12,6 @@ google-genai
 bcrypt
 streamlit-js-eval
 python-docx
+pypdf
 reportlab
 psycopg2-binary
