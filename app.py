@@ -10662,6 +10662,1248 @@ def render_final_survey(user, posttest_quiz):
 
 
 
+
+# BUNSEKI_R8_22C_TEACHER_METHODOLOGY_UI
+
+MBADA_FRAMEWORK_CODE = "MBADA"
+MBADA_FRAMEWORK_VERSION = "1.0"
+MBADA_CYCLE = (
+    "DIAGNOSTICA → EXPLORA → COMPRENDE → EXPLICA → PRACTICA → "
+    "ASCIENDE → DEMUESTRA → RECUPERA → REFLEXIONA"
+)
+
+
+def _mbada_json_list(value):
+    if value is None:
+        return []
+
+    if isinstance(value, (list, tuple)):
+        return [
+            str(item).strip()
+            for item in value
+            if str(item).strip()
+        ]
+
+    if isinstance(value, str):
+        text = value.strip()
+
+        if not text:
+            return []
+
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [
+                    str(item).strip()
+                    for item in parsed
+                    if str(item).strip()
+                ]
+        except Exception:
+            pass
+
+        return [
+            line.strip(" •-\t")
+            for line in text.splitlines()
+            if line.strip(" •-\t")
+        ]
+
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _mbada_lines(value):
+    return "\n".join(_mbada_json_list(value))
+
+
+def get_topic_methodologies(plan_topic_id):
+    return fetchall(
+        """
+        SELECT
+            id,
+            plan_topic_id,
+            framework_code,
+            framework_version,
+            version_no,
+            status,
+            pedagogical_objective,
+            prerequisites_json,
+            essential_concepts_json,
+            guiding_question,
+            diagnostic_strategy,
+            explore_strategy,
+            understand_strategy,
+            explain_strategy,
+            worked_example,
+            socratic_prompts_json,
+            practice_strategy,
+            mastery_threshold,
+            ascend_rule,
+            demonstrate_strategy,
+            transfer_activity,
+            recovery_strategy,
+            reflection_prompt,
+            spacing_plan_json,
+            teacher_notes,
+            ai_generated,
+            ai_model,
+            prompt_version,
+            created_by,
+            approved_by,
+            created_at,
+            updated_at,
+            approved_at
+        FROM plan_topic_methodologies
+        WHERE plan_topic_id=%s
+        ORDER BY version_no DESC, id DESC
+        """,
+        (int(plan_topic_id),),
+    )
+
+
+def get_latest_topic_methodology(plan_topic_id):
+    rows = get_topic_methodologies(plan_topic_id)
+    return rows[0] if rows else None
+
+
+def _mbada_topic_access(
+    connection,
+    plan_topic_id,
+    user_id,
+    user_role,
+):
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                pt.id AS plan_topic_id,
+                pt.plan_id,
+                ap.teacher_id
+            FROM plan_topics pt
+            JOIN analytic_plans ap ON ap.id=pt.plan_id
+            WHERE pt.id=%s
+            """,
+            (int(plan_topic_id),),
+        )
+        row = cur.fetchone()
+
+    if not row:
+        raise ValueError("El tema curricular no existe.")
+
+    role = str(user_role or "").strip().lower()
+    teacher_id = row.get("teacher_id")
+
+    if role != "admin":
+        if teacher_id is None or int(teacher_id) != int(user_id):
+            raise ValueError(
+                "No tienes autorización para modificar la metodología "
+                "de este plan."
+            )
+
+    return row
+
+
+def _validate_mbada_ready(methodology):
+    required = {
+        "pedagogical_objective": "Objetivo pedagógico",
+        "guiding_question": "Pregunta guía",
+        "diagnostic_strategy": "DIAGNOSTICA",
+        "explore_strategy": "EXPLORA",
+        "understand_strategy": "COMPRENDE",
+        "explain_strategy": "EXPLICA",
+        "practice_strategy": "PRACTICA",
+        "ascend_rule": "ASCIENDE",
+        "demonstrate_strategy": "DEMUESTRA",
+        "recovery_strategy": "RECUPERA",
+        "reflection_prompt": "REFLEXIONA",
+    }
+
+    missing = [
+        label
+        for field, label in required.items()
+        if not str(methodology.get(field) or "").strip()
+    ]
+
+    if not _mbada_json_list(
+        methodology.get("essential_concepts_json")
+    ):
+        missing.append("Conceptos esenciales")
+
+    if not _mbada_json_list(
+        methodology.get("socratic_prompts_json")
+    ):
+        missing.append("Preguntas socráticas")
+
+    if missing:
+        raise ValueError(
+            "Completa antes de revisar/aprobar: "
+            + ", ".join(missing)
+            + "."
+        )
+
+
+def save_topic_methodology(
+    user_id,
+    user_role,
+    plan_topic_id,
+    payload,
+    methodology_id=None,
+):
+    connection = conn()
+    connection.autocommit = False
+
+    try:
+        _mbada_topic_access(
+            connection,
+            plan_topic_id,
+            user_id,
+            user_role,
+        )
+
+        prereq_json = json.dumps(
+            _mbada_json_list(payload.get("prerequisites")),
+            ensure_ascii=False,
+        )
+        concepts_json = json.dumps(
+            _mbada_json_list(
+                payload.get("essential_concepts")
+            ),
+            ensure_ascii=False,
+        )
+        socratic_json = json.dumps(
+            _mbada_json_list(payload.get("socratic_prompts")),
+            ensure_ascii=False,
+        )
+        spacing_json = json.dumps(
+            _mbada_json_list(payload.get("spacing_plan")),
+            ensure_ascii=False,
+        )
+
+        with connection.cursor() as cur:
+            if methodology_id:
+                cur.execute(
+                    """
+                    SELECT id, plan_topic_id, status
+                    FROM plan_topic_methodologies
+                    WHERE id=%s
+                    FOR UPDATE
+                    """,
+                    (int(methodology_id),),
+                )
+                existing = cur.fetchone()
+
+                if not existing:
+                    raise ValueError(
+                        "La metodología seleccionada ya no existe."
+                    )
+
+                if int(existing.get("plan_topic_id")) != int(
+                    plan_topic_id
+                ):
+                    raise ValueError(
+                        "La metodología no corresponde al tema "
+                        "curricular."
+                    )
+
+                if existing.get("status") not in {
+                    "draft",
+                    "reviewed",
+                }:
+                    raise ValueError(
+                        "Una metodología aprobada no se edita "
+                        "directamente. Crea una nueva versión."
+                    )
+
+                cur.execute(
+                    """
+                    UPDATE plan_topic_methodologies
+                    SET
+                        status='draft',
+                        pedagogical_objective=%s,
+                        prerequisites_json=%s::jsonb,
+                        essential_concepts_json=%s::jsonb,
+                        guiding_question=%s,
+                        diagnostic_strategy=%s,
+                        explore_strategy=%s,
+                        understand_strategy=%s,
+                        explain_strategy=%s,
+                        worked_example=%s,
+                        socratic_prompts_json=%s::jsonb,
+                        practice_strategy=%s,
+                        mastery_threshold=%s,
+                        ascend_rule=%s,
+                        demonstrate_strategy=%s,
+                        transfer_activity=%s,
+                        recovery_strategy=%s,
+                        reflection_prompt=%s,
+                        spacing_plan_json=%s::jsonb,
+                        teacher_notes=%s,
+                        updated_at=NOW(),
+                        approved_by=NULL,
+                        approved_at=NULL
+                    WHERE id=%s
+                    RETURNING id
+                    """,
+                    (
+                        payload.get("pedagogical_objective"),
+                        prereq_json,
+                        concepts_json,
+                        payload.get("guiding_question"),
+                        payload.get("diagnostic_strategy"),
+                        payload.get("explore_strategy"),
+                        payload.get("understand_strategy"),
+                        payload.get("explain_strategy"),
+                        payload.get("worked_example"),
+                        socratic_json,
+                        payload.get("practice_strategy"),
+                        float(
+                            payload.get("mastery_threshold")
+                            or 80.0
+                        ),
+                        payload.get("ascend_rule"),
+                        payload.get("demonstrate_strategy"),
+                        payload.get("transfer_activity"),
+                        payload.get("recovery_strategy"),
+                        payload.get("reflection_prompt"),
+                        spacing_json,
+                        payload.get("teacher_notes"),
+                        int(methodology_id),
+                    ),
+                )
+                saved_id = int(cur.fetchone()["id"])
+
+            else:
+                cur.execute(
+                    "SELECT pg_advisory_xact_lock(%s)",
+                    (int(plan_topic_id),),
+                )
+
+                cur.execute(
+                    """
+                    SELECT COALESCE(MAX(version_no), 0) + 1
+                        AS next_version
+                    FROM plan_topic_methodologies
+                    WHERE plan_topic_id=%s
+                    """,
+                    (int(plan_topic_id),),
+                )
+                version_no = int(
+                    cur.fetchone().get("next_version") or 1
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO plan_topic_methodologies(
+                        plan_topic_id,
+                        framework_code,
+                        framework_version,
+                        version_no,
+                        status,
+                        pedagogical_objective,
+                        prerequisites_json,
+                        essential_concepts_json,
+                        guiding_question,
+                        diagnostic_strategy,
+                        explore_strategy,
+                        understand_strategy,
+                        explain_strategy,
+                        worked_example,
+                        socratic_prompts_json,
+                        practice_strategy,
+                        mastery_threshold,
+                        ascend_rule,
+                        demonstrate_strategy,
+                        transfer_activity,
+                        recovery_strategy,
+                        reflection_prompt,
+                        spacing_plan_json,
+                        teacher_notes,
+                        ai_generated,
+                        created_by,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES(
+                        %s,%s,%s,%s,'draft',
+                        %s,%s::jsonb,%s::jsonb,%s,
+                        %s,%s,%s,%s,%s,%s::jsonb,
+                        %s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,
+                        FALSE,%s,NOW(),NOW()
+                    )
+                    RETURNING id
+                    """,
+                    (
+                        int(plan_topic_id),
+                        MBADA_FRAMEWORK_CODE,
+                        MBADA_FRAMEWORK_VERSION,
+                        version_no,
+                        payload.get("pedagogical_objective"),
+                        prereq_json,
+                        concepts_json,
+                        payload.get("guiding_question"),
+                        payload.get("diagnostic_strategy"),
+                        payload.get("explore_strategy"),
+                        payload.get("understand_strategy"),
+                        payload.get("explain_strategy"),
+                        payload.get("worked_example"),
+                        socratic_json,
+                        payload.get("practice_strategy"),
+                        float(
+                            payload.get("mastery_threshold")
+                            or 80.0
+                        ),
+                        payload.get("ascend_rule"),
+                        payload.get("demonstrate_strategy"),
+                        payload.get("transfer_activity"),
+                        payload.get("recovery_strategy"),
+                        payload.get("reflection_prompt"),
+                        spacing_json,
+                        payload.get("teacher_notes"),
+                        int(user_id),
+                    ),
+                )
+                saved_id = int(cur.fetchone()["id"])
+
+        connection.commit()
+        return saved_id
+
+    except Exception:
+        connection.rollback()
+        raise
+
+    finally:
+        connection.close()
+
+
+def set_topic_methodology_status(
+    methodology_id,
+    user_id,
+    user_role,
+    target_status,
+):
+    target_status = str(
+        target_status or ""
+    ).strip().lower()
+
+    connection = conn()
+    connection.autocommit = False
+
+    try:
+        with connection.cursor() as cur:
+            cur.execute(
+                """
+                SELECT *
+                FROM plan_topic_methodologies
+                WHERE id=%s
+                FOR UPDATE
+                """,
+                (int(methodology_id),),
+            )
+            row = cur.fetchone()
+
+            if not row:
+                raise ValueError("La metodología no existe.")
+
+            _mbada_topic_access(
+                connection,
+                row.get("plan_topic_id"),
+                user_id,
+                user_role,
+            )
+
+            current = str(
+                row.get("status") or ""
+            ).lower()
+
+            if target_status == "reviewed":
+                if current != "draft":
+                    raise ValueError(
+                        "Solo un borrador puede pasar a revisión."
+                    )
+
+                _validate_mbada_ready(row)
+
+                cur.execute(
+                    """
+                    UPDATE plan_topic_methodologies
+                    SET status='reviewed', updated_at=NOW()
+                    WHERE id=%s
+                    """,
+                    (int(methodology_id),),
+                )
+
+            elif target_status == "approved":
+                if current != "reviewed":
+                    raise ValueError(
+                        "La metodología debe estar revisada "
+                        "antes de aprobarse."
+                    )
+
+                _validate_mbada_ready(row)
+
+                cur.execute(
+                    """
+                    UPDATE plan_topic_methodologies
+                    SET status='retired', updated_at=NOW()
+                    WHERE plan_topic_id=%s
+                      AND status='approved'
+                      AND id<>%s
+                    """,
+                    (
+                        int(row.get("plan_topic_id")),
+                        int(methodology_id),
+                    ),
+                )
+
+                cur.execute(
+                    """
+                    UPDATE plan_topic_methodologies
+                    SET
+                        status='approved',
+                        approved_by=%s,
+                        approved_at=NOW(),
+                        updated_at=NOW()
+                    WHERE id=%s
+                    """,
+                    (
+                        int(user_id),
+                        int(methodology_id),
+                    ),
+                )
+
+            else:
+                raise ValueError(
+                    "Transición metodológica no permitida."
+                )
+
+        connection.commit()
+
+    except Exception:
+        connection.rollback()
+        raise
+
+    finally:
+        connection.close()
+
+
+def clone_topic_methodology_version(
+    methodology_id,
+    user_id,
+    user_role,
+):
+    connection = conn()
+    connection.autocommit = False
+
+    try:
+        with connection.cursor() as cur:
+            cur.execute(
+                """
+                SELECT *
+                FROM plan_topic_methodologies
+                WHERE id=%s
+                FOR UPDATE
+                """,
+                (int(methodology_id),),
+            )
+            source_row = cur.fetchone()
+
+            if not source_row:
+                raise ValueError("La metodología no existe.")
+
+            plan_topic_id = int(
+                source_row.get("plan_topic_id")
+            )
+
+            _mbada_topic_access(
+                connection,
+                plan_topic_id,
+                user_id,
+                user_role,
+            )
+
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(%s)",
+                (plan_topic_id,),
+            )
+
+            cur.execute(
+                """
+                SELECT COALESCE(MAX(version_no), 0) + 1
+                    AS next_version
+                FROM plan_topic_methodologies
+                WHERE plan_topic_id=%s
+                """,
+                (plan_topic_id,),
+            )
+            next_version = int(
+                cur.fetchone().get("next_version") or 1
+            )
+
+            cur.execute(
+                """
+                INSERT INTO plan_topic_methodologies(
+                    plan_topic_id,
+                    framework_code,
+                    framework_version,
+                    version_no,
+                    status,
+                    pedagogical_objective,
+                    prerequisites_json,
+                    essential_concepts_json,
+                    guiding_question,
+                    diagnostic_strategy,
+                    explore_strategy,
+                    understand_strategy,
+                    explain_strategy,
+                    worked_example,
+                    socratic_prompts_json,
+                    practice_strategy,
+                    mastery_threshold,
+                    ascend_rule,
+                    demonstrate_strategy,
+                    transfer_activity,
+                    recovery_strategy,
+                    reflection_prompt,
+                    spacing_plan_json,
+                    teacher_notes,
+                    ai_generated,
+                    ai_model,
+                    prompt_version,
+                    created_by,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    plan_topic_id,
+                    framework_code,
+                    framework_version,
+                    %s,
+                    'draft',
+                    pedagogical_objective,
+                    prerequisites_json,
+                    essential_concepts_json,
+                    guiding_question,
+                    diagnostic_strategy,
+                    explore_strategy,
+                    understand_strategy,
+                    explain_strategy,
+                    worked_example,
+                    socratic_prompts_json,
+                    practice_strategy,
+                    mastery_threshold,
+                    ascend_rule,
+                    demonstrate_strategy,
+                    transfer_activity,
+                    recovery_strategy,
+                    reflection_prompt,
+                    spacing_plan_json,
+                    teacher_notes,
+                    ai_generated,
+                    ai_model,
+                    prompt_version,
+                    %s,
+                    NOW(),
+                    NOW()
+                FROM plan_topic_methodologies
+                WHERE id=%s
+                RETURNING id
+                """,
+                (
+                    next_version,
+                    int(user_id),
+                    int(methodology_id),
+                ),
+            )
+            new_id = int(cur.fetchone()["id"])
+
+        connection.commit()
+        return new_id
+
+    except Exception:
+        connection.rollback()
+        raise
+
+    finally:
+        connection.close()
+
+
+def _render_approved_mbada_methodology(methodology):
+    with st.expander(
+        "Ver metodología MBADA aprobada",
+        expanded=True,
+    ):
+        st.write(
+            "**Objetivo pedagógico:** "
+            + str(
+                methodology.get(
+                    "pedagogical_objective"
+                )
+                or "—"
+            )
+        )
+
+        st.write(
+            "**Prerrequisitos:** "
+            + (
+                "; ".join(
+                    _mbada_json_list(
+                        methodology.get(
+                            "prerequisites_json"
+                        )
+                    )
+                )
+                or "—"
+            )
+        )
+
+        st.write(
+            "**Conceptos esenciales:** "
+            + (
+                "; ".join(
+                    _mbada_json_list(
+                        methodology.get(
+                            "essential_concepts_json"
+                        )
+                    )
+                )
+                or "—"
+            )
+        )
+
+        st.write(
+            "**Pregunta guía:** "
+            + str(
+                methodology.get(
+                    "guiding_question"
+                )
+                or "—"
+            )
+        )
+
+        phases = [
+            ("DIAGNOSTICA", "diagnostic_strategy"),
+            ("EXPLORA", "explore_strategy"),
+            ("COMPRENDE", "understand_strategy"),
+            ("EXPLICA", "explain_strategy"),
+            ("PRACTICA", "practice_strategy"),
+            ("ASCIENDE", "ascend_rule"),
+            ("DEMUESTRA", "demonstrate_strategy"),
+            ("RECUPERA", "recovery_strategy"),
+            ("REFLEXIONA", "reflection_prompt"),
+        ]
+
+        for label, field in phases:
+            st.write(
+                f"**{label}:** "
+                + str(methodology.get(field) or "—")
+            )
+
+        st.write(
+            "**Transferencia:** "
+            + str(
+                methodology.get(
+                    "transfer_activity"
+                )
+                or "—"
+            )
+        )
+
+        st.write(
+            "**Umbral de dominio:** "
+            + str(
+                methodology.get(
+                    "mastery_threshold"
+                )
+                or 80
+            )
+            + "%"
+        )
+
+
+def render_topic_methodology_manager(
+    user,
+    selected_topic,
+):
+    plan_topic_id = int(selected_topic["id"])
+    methodology = get_latest_topic_methodology(
+        plan_topic_id
+    )
+
+    st.markdown("---")
+    st.markdown("### 🧭 Metodología MBADA")
+
+    st.caption(
+        "Metodología Bunseki de Aprendizaje por Dominio "
+        "Adaptativo · "
+        + MBADA_CYCLE
+    )
+
+    st.caption(
+        "La metodología se almacena separada del currículo "
+        "oficial. El docente revisa y aprueba cada versión."
+    )
+
+    if methodology:
+        version_no = int(
+            methodology.get(
+                "version_no"
+            )
+            or 1
+        )
+
+        status = str(
+            methodology.get(
+                "status"
+            )
+            or "draft"
+        ).lower()
+
+        st.info(
+            f"Versión {version_no} · Estado: "
+            f"{status.upper()} · Umbral de dominio: "
+            f"{float(methodology.get('mastery_threshold') or 80):.0f}%"
+        )
+
+    else:
+        status = "draft"
+
+        st.info(
+            "Este tema todavía no tiene metodología MBADA. "
+            "Crea la versión 1 para comenzar."
+        )
+
+    if methodology and status == "approved":
+        _render_approved_mbada_methodology(
+            methodology
+        )
+
+        if st.button(
+            "Crear nueva versión editable",
+            key=(
+                f"mbada_clone_{plan_topic_id}_"
+                f"{methodology['id']}"
+            ),
+            use_container_width=True,
+        ):
+            try:
+                new_id = clone_topic_methodology_version(
+                    methodology["id"],
+                    user["id"],
+                    user.get("role"),
+                )
+
+                st.success(
+                    "Nueva versión creada en borrador. "
+                    f"ID: {new_id}."
+                )
+
+                st.rerun()
+
+            except (
+                ValueError,
+                RuntimeError,
+            ) as exc:
+                st.error(
+                    str(exc)
+                )
+
+        st.caption(
+            "Una versión aprobada queda congelada para "
+            "mantener trazabilidad metodológica e investigativa."
+        )
+
+        return
+
+    methodology = methodology or {}
+
+    form_key = (
+        f"mbada_form_{plan_topic_id}_"
+        f"{methodology.get('id') or 'new'}"
+    )
+
+    with st.form(
+        form_key
+    ):
+        st.markdown(
+            "#### Diseño pedagógico"
+        )
+
+        pedagogical_objective = st.text_area(
+            "Objetivo pedagógico",
+            value=str(
+                methodology.get(
+                    "pedagogical_objective"
+                )
+                or ""
+            ),
+            key=f"{form_key}_objective",
+        )
+
+        prereq = st.text_area(
+            "Prerrequisitos (uno por línea)",
+            value=_mbada_lines(
+                methodology.get(
+                    "prerequisites_json"
+                )
+            ),
+            key=f"{form_key}_prereq",
+        )
+
+        concepts = st.text_area(
+            "Conceptos esenciales (uno por línea)",
+            value=_mbada_lines(
+                methodology.get(
+                    "essential_concepts_json"
+                )
+            ),
+            key=f"{form_key}_concepts",
+        )
+
+        guiding_question = st.text_area(
+            "Pregunta guía",
+            value=str(
+                methodology.get(
+                    "guiding_question"
+                )
+                or ""
+            ),
+            key=f"{form_key}_guiding",
+        )
+
+        st.markdown(
+            "#### Ciclo MBADA"
+        )
+
+        diagnostic_strategy = st.text_area(
+            "1. DIAGNOSTICA · Conocimiento previo",
+            value=str(
+                methodology.get(
+                    "diagnostic_strategy"
+                )
+                or ""
+            ),
+            key=f"{form_key}_diagnostic",
+        )
+
+        explore_strategy = st.text_area(
+            "2. EXPLORA · Situación inicial o problema",
+            value=str(
+                methodology.get(
+                    "explore_strategy"
+                )
+                or ""
+            ),
+            key=f"{form_key}_explore",
+        )
+
+        understand_strategy = st.text_area(
+            "3. COMPRENDE · Explicación y andamiaje",
+            value=str(
+                methodology.get(
+                    "understand_strategy"
+                )
+                or ""
+            ),
+            key=f"{form_key}_understand",
+        )
+
+        worked_example = st.text_area(
+            "Ejemplo trabajado",
+            value=str(
+                methodology.get(
+                    "worked_example"
+                )
+                or ""
+            ),
+            key=f"{form_key}_worked",
+        )
+
+        explain_strategy = st.text_area(
+            "4. EXPLICA · Autoexplicación del estudiante",
+            value=str(
+                methodology.get(
+                    "explain_strategy"
+                )
+                or ""
+            ),
+            key=f"{form_key}_explain",
+        )
+
+        socratic = st.text_area(
+            "Preguntas socráticas (una por línea)",
+            value=_mbada_lines(
+                methodology.get(
+                    "socratic_prompts_json"
+                )
+            ),
+            key=f"{form_key}_socratic",
+        )
+
+        practice_strategy = st.text_area(
+            "5. PRACTICA · Práctica adaptativa",
+            value=str(
+                methodology.get(
+                    "practice_strategy"
+                )
+                or ""
+            ),
+            key=f"{form_key}_practice",
+        )
+
+        mastery_threshold = st.number_input(
+            "Umbral de dominio (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(
+                methodology.get(
+                    "mastery_threshold"
+                )
+                or 80.0
+            ),
+            step=1.0,
+            key=f"{form_key}_threshold",
+        )
+
+        ascend_rule = st.text_area(
+            "6. ASCIENDE · Regla para avanzar o reforzar",
+            value=str(
+                methodology.get(
+                    "ascend_rule"
+                )
+                or ""
+            ),
+            key=f"{form_key}_ascend",
+        )
+
+        demonstrate_strategy = st.text_area(
+            "7. DEMUESTRA · Evidencia sin ayuda",
+            value=str(
+                methodology.get(
+                    "demonstrate_strategy"
+                )
+                or ""
+            ),
+            key=f"{form_key}_demonstrate",
+        )
+
+        transfer_activity = st.text_area(
+            "Actividad de transferencia",
+            value=str(
+                methodology.get(
+                    "transfer_activity"
+                )
+                or ""
+            ),
+            key=f"{form_key}_transfer",
+        )
+
+        recovery_strategy = st.text_area(
+            "8. RECUPERA · Refuerzo dirigido por error",
+            value=str(
+                methodology.get(
+                    "recovery_strategy"
+                )
+                or ""
+            ),
+            key=f"{form_key}_recovery",
+        )
+
+        reflection_prompt = st.text_area(
+            "9. REFLEXIONA · Metacognición",
+            value=str(
+                methodology.get(
+                    "reflection_prompt"
+                )
+                or ""
+            ),
+            key=f"{form_key}_reflection",
+        )
+
+        spacing_plan = st.text_area(
+            "Plan de recuperación espaciada (uno por línea)",
+            value=_mbada_lines(
+                methodology.get(
+                    "spacing_plan_json"
+                )
+            ),
+            placeholder=(
+                "48 horas: recuperación breve\n"
+                "7 días: práctica intercalada\n"
+                "21 días: transferencia/retención"
+            ),
+            key=f"{form_key}_spacing",
+        )
+
+        teacher_notes = st.text_area(
+            "Notas del docente",
+            value=str(
+                methodology.get(
+                    "teacher_notes"
+                )
+                or ""
+            ),
+            key=f"{form_key}_notes",
+        )
+
+        submitted = st.form_submit_button(
+            "Guardar metodología como borrador",
+            use_container_width=True,
+        )
+
+    if submitted:
+        payload = {
+            "pedagogical_objective":
+                pedagogical_objective.strip(),
+            "prerequisites":
+                prereq,
+            "essential_concepts":
+                concepts,
+            "guiding_question":
+                guiding_question.strip(),
+            "diagnostic_strategy":
+                diagnostic_strategy.strip(),
+            "explore_strategy":
+                explore_strategy.strip(),
+            "understand_strategy":
+                understand_strategy.strip(),
+            "explain_strategy":
+                explain_strategy.strip(),
+            "worked_example":
+                worked_example.strip(),
+            "socratic_prompts":
+                socratic,
+            "practice_strategy":
+                practice_strategy.strip(),
+            "mastery_threshold":
+                float(
+                    mastery_threshold
+                ),
+            "ascend_rule":
+                ascend_rule.strip(),
+            "demonstrate_strategy":
+                demonstrate_strategy.strip(),
+            "transfer_activity":
+                transfer_activity.strip(),
+            "recovery_strategy":
+                recovery_strategy.strip(),
+            "reflection_prompt":
+                reflection_prompt.strip(),
+            "spacing_plan":
+                spacing_plan,
+            "teacher_notes":
+                teacher_notes.strip(),
+        }
+
+        try:
+            saved_id = save_topic_methodology(
+                user["id"],
+                user.get("role"),
+                plan_topic_id,
+                payload,
+                methodology_id=methodology.get(
+                    "id"
+                ),
+            )
+
+            st.success(
+                "Metodología guardada en borrador. "
+                f"ID: {saved_id}."
+            )
+
+            st.rerun()
+
+        except (
+            ValueError,
+            RuntimeError,
+        ) as exc:
+            st.error(
+                str(exc)
+            )
+
+    if (
+        methodology.get(
+            "id"
+        )
+        and status == "draft"
+    ):
+        if st.button(
+            "Marcar metodología como revisada",
+            key=(
+                f"mbada_review_"
+                f"{methodology['id']}"
+            ),
+            use_container_width=True,
+        ):
+            try:
+                set_topic_methodology_status(
+                    methodology["id"],
+                    user["id"],
+                    user.get("role"),
+                    "reviewed",
+                )
+
+                st.success(
+                    "Metodología marcada como revisada."
+                )
+
+                st.rerun()
+
+            except (
+                ValueError,
+                RuntimeError,
+            ) as exc:
+                st.error(
+                    str(exc)
+                )
+
+    elif (
+        methodology.get(
+            "id"
+        )
+        and status == "reviewed"
+    ):
+        st.warning(
+            "La metodología está revisada. Si modificas "
+            "y guardas algún campo volverá a estado BORRADOR."
+        )
+
+        if st.button(
+            "Aprobar metodología MBADA",
+            key=(
+                f"mbada_approve_"
+                f"{methodology['id']}"
+            ),
+            use_container_width=True,
+        ):
+            try:
+                set_topic_methodology_status(
+                    methodology["id"],
+                    user["id"],
+                    user.get("role"),
+                    "approved",
+                )
+
+                st.success(
+                    "Metodología aprobada y congelada "
+                    "para trazabilidad."
+                )
+
+                st.rerun()
+
+            except (
+                ValueError,
+                RuntimeError,
+            ) as exc:
+                st.error(
+                    str(exc)
+                )
+
+    st.caption(
+        "R8.22C1 habilita autoría, revisión y aprobación "
+        "manual. La propuesta automática con IA se "
+        "incorporará en R8.22D."
+    )
+
+
 def render_teacher_plan_manager(user):
     ensure_question_bank_gold_schema()
 
@@ -10819,6 +12061,13 @@ def render_teacher_plan_manager(user):
         st.caption("Evidencia documental: " + str(selected_topic.get("source_excerpt")))
 
 
+
+
+
+    render_topic_methodology_manager(
+        user,
+        selected_topic,
+    )
 
     generation_left, generation_right = st.columns(2)
 
