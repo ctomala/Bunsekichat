@@ -10878,6 +10878,18 @@ def save_topic_methodology(
             ensure_ascii=False,
         )
 
+        ai_generated = bool(
+            payload.get("ai_generated", False)
+        )
+        ai_model = (
+            str(payload.get("ai_model") or "").strip()
+            or None
+        )
+        prompt_version = (
+            str(payload.get("prompt_version") or "").strip()
+            or None
+        )
+
         with connection.cursor() as cur:
             if methodology_id:
                 cur.execute(
@@ -10937,6 +10949,9 @@ def save_topic_methodology(
                         reflection_prompt=%s,
                         spacing_plan_json=%s::jsonb,
                         teacher_notes=%s,
+                        ai_generated=%s,
+                        ai_model=%s,
+                        prompt_version=%s,
                         updated_at=NOW(),
                         approved_by=NULL,
                         approved_at=NULL
@@ -10966,6 +10981,9 @@ def save_topic_methodology(
                         payload.get("reflection_prompt"),
                         spacing_json,
                         payload.get("teacher_notes"),
+                        ai_generated,
+                        ai_model,
+                        prompt_version,
                         int(methodology_id),
                     ),
                 )
@@ -11018,6 +11036,8 @@ def save_topic_methodology(
                         spacing_plan_json,
                         teacher_notes,
                         ai_generated,
+                        ai_model,
+                        prompt_version,
                         created_by,
                         created_at,
                         updated_at
@@ -11027,7 +11047,7 @@ def save_topic_methodology(
                         %s,%s::jsonb,%s::jsonb,%s,
                         %s,%s,%s,%s,%s,%s::jsonb,
                         %s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,
-                        FALSE,%s,NOW(),NOW()
+                        %s,%s,%s,%s,NOW(),NOW()
                     )
                     RETURNING id
                     """,
@@ -11058,6 +11078,9 @@ def save_topic_methodology(
                         payload.get("reflection_prompt"),
                         spacing_json,
                         payload.get("teacher_notes"),
+                        ai_generated,
+                        ai_model,
+                        prompt_version,
                         int(user_id),
                     ),
                 )
@@ -11072,6 +11095,7 @@ def save_topic_methodology(
 
     finally:
         connection.close()
+
 
 
 def set_topic_methodology_status(
@@ -11419,6 +11443,275 @@ def _render_approved_mbada_methodology(methodology):
         )
 
 
+# BUNSEKI_R8_22D_AI_METHODOLOGY_PROPOSAL
+MBADA_PROPOSAL_PROMPT_VERSION = "R8.22D2B-MBADA-1.1"
+MBADA_PROPOSAL_MODEL = "gemini-3.8-flash"
+
+
+def _normalize_mbada_methodology_proposal(generated):
+    if not isinstance(generated, dict):
+        raise ValueError(
+            "La propuesta metodológica recibida no tiene "
+            "una estructura válida."
+        )
+
+    text_fields = [
+        "pedagogical_objective",
+        "guiding_question",
+        "diagnostic_strategy",
+        "explore_strategy",
+        "understand_strategy",
+        "worked_example",
+        "explain_strategy",
+        "practice_strategy",
+        "ascend_rule",
+        "demonstrate_strategy",
+        "transfer_activity",
+        "recovery_strategy",
+        "reflection_prompt",
+    ]
+
+    list_fields = [
+        "prerequisites",
+        "essential_concepts",
+        "socratic_prompts",
+        "spacing_plan",
+    ]
+
+    normalized = {}
+
+    missing = []
+
+    for field in text_fields:
+        value = str(
+            generated.get(field)
+            or ""
+        ).strip()
+
+        if not value:
+            missing.append(field)
+
+        normalized[field] = value
+
+    for field in list_fields:
+        value = _mbada_json_list(
+            generated.get(field)
+        )
+
+        if not value:
+            missing.append(field)
+
+        normalized[field] = value
+
+    if missing:
+        raise ValueError(
+            "La propuesta está incompleta. Faltan: "
+            + ", ".join(missing)
+            + "."
+        )
+
+    try:
+        threshold = float(
+            generated.get(
+                "mastery_threshold",
+                80.0,
+            )
+        )
+    except Exception as exc:
+        raise ValueError(
+            "El umbral de dominio propuesto no es válido."
+        ) from exc
+
+    if not 0 <= threshold <= 100:
+        raise ValueError(
+            "El umbral de dominio propuesto debe estar "
+            "entre 0 y 100."
+        )
+
+    normalized[
+        "mastery_threshold"
+    ] = threshold
+
+    normalized[
+        "teacher_notes"
+    ] = str(
+        generated.get(
+            "teacher_notes"
+        )
+        or ""
+    ).strip()
+
+    normalized[
+        "ai_generated"
+    ] = True
+
+    normalized[
+        "ai_model"
+    ] = MBADA_PROPOSAL_MODEL
+
+    normalized[
+        "prompt_version"
+    ] = MBADA_PROPOSAL_PROMPT_VERSION
+
+    return normalized
+
+
+def generate_mbada_methodology_proposal(
+    teacher_id,
+    plan_topic_id,
+):
+    topic_context = get_plan_topic_for_actor(
+        int(plan_topic_id),
+        int(teacher_id),
+    )
+
+    if not topic_context:
+        raise ValueError(
+            "No se encontró el tema curricular seleccionado."
+        )
+
+    client = ai_client()
+
+    if not client:
+        raise RuntimeError(
+            "No está disponible el servicio de generación "
+            "de propuestas metodológicas."
+        )
+
+    prompt = f"""
+Eres un diseñador pedagógico universitario que trabaja dentro de BunsekiChat.
+
+Genera una propuesta para la Metodología Bunseki de Aprendizaje por Dominio
+Adaptativo (MBADA).
+
+MBADA organiza el aprendizaje en nueve momentos:
+DIAGNOSTICA, EXPLORA, COMPRENDE, EXPLICA, PRACTICA, ASCIENDE, DEMUESTRA,
+RECUPERA y REFLEXIONA.
+
+REGLAS OBLIGATORIAS:
+1. Trabaja EXCLUSIVAMENTE con el contenido curricular proporcionado.
+2. No cambies, amplíes ni inventes otro tema o subtema.
+3. No sustituyas el resultado de aprendizaje oficial.
+4. Respeta el nivel de Bloom indicado.
+5. Diseña andamiaje progresivo: mayor apoyo al inicio y menor ayuda al demostrar.
+6. Incluye autoexplicación y preguntas socráticas, sin entregar de inmediato
+   la respuesta completa.
+7. La fase DEMUESTRA debe comprobar desempeño sin pistas.
+8. RECUPERA debe responder al error conceptual detectado.
+9. REFLEXIONA debe incluir metacognición.
+10. La transferencia debe aplicar el mismo conocimiento en una situación nueva.
+11. El umbral de dominio es una PROPUESTA editable por el docente. Usa 80 como
+    referencia inicial salvo que exista una razón pedagógica clara para otro
+    valor entre 70 y 95.
+12. No tomes decisiones administrativas ni de aprobación. El docente revisará,
+    editará y aprobará la propuesta.
+13. Devuelve SOLO un objeto JSON válido. Sin markdown ni texto adicional.
+
+CONTEXTO CURRICULAR OFICIAL:
+Unidad: {topic_context.get('unit_name') or ''}
+Tema: {topic_context.get('topic') or ''}
+Subtema: {topic_context.get('subtopic') or ''}
+Resultado de aprendizaje: {topic_context.get('learning_outcome') or ''}
+Bloom: {topic_context.get('bloom_level') or ''}
+Palabras clave: {topic_context.get('keywords') or ''}
+Fuente documental: {topic_context.get('source_locator') or ''}
+Evidencia documental: {topic_context.get('source_excerpt') or ''}
+
+El JSON debe contener EXACTAMENTE estas claves:
+{{
+  "pedagogical_objective": "texto",
+  "prerequisites": ["texto"],
+  "essential_concepts": ["texto"],
+  "guiding_question": "texto",
+  "diagnostic_strategy": "texto",
+  "explore_strategy": "texto",
+  "understand_strategy": "texto",
+  "worked_example": "texto",
+  "explain_strategy": "texto",
+  "socratic_prompts": ["texto", "texto", "texto"],
+  "practice_strategy": "texto",
+  "mastery_threshold": 80,
+  "ascend_rule": "texto",
+  "demonstrate_strategy": "texto",
+  "transfer_activity": "texto",
+  "recovery_strategy": "texto",
+  "reflection_prompt": "texto",
+  "spacing_plan": ["texto", "texto", "texto"],
+  "teacher_notes": "texto breve opcional"
+}}
+"""
+
+    models = [
+        MBADA_PROPOSAL_MODEL,
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+    ]
+
+    errors = []
+
+    for model in models:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+            )
+
+            generated = _safe_json_loads(
+                response.text,
+                {},
+            )
+
+            proposal = _normalize_mbada_methodology_proposal(
+                generated
+            )
+
+            proposal["ai_model"] = model
+            proposal[
+                "prompt_version"
+            ] = MBADA_PROPOSAL_PROMPT_VERSION
+
+            return proposal
+
+        except Exception as exc:
+            errors.append(
+                f"{model}:{type(exc).__name__}"
+            )
+            continue
+
+    raise RuntimeError(
+        "No se pudo generar la propuesta metodológica. "
+        "Intenta nuevamente en unos minutos."
+    )
+
+
+# BUNSEKI_R8_22D2D_RECOVERY_FORM_HYDRATION
+def _hydrate_mbada_proposal_form_state(form_key, proposal):
+    values = {
+        "objective": str(proposal.get("pedagogical_objective") or ""),
+        "prereq": _mbada_lines(proposal.get("prerequisites")),
+        "concepts": _mbada_lines(proposal.get("essential_concepts")),
+        "guiding": str(proposal.get("guiding_question") or ""),
+        "diagnostic": str(proposal.get("diagnostic_strategy") or ""),
+        "explore": str(proposal.get("explore_strategy") or ""),
+        "understand": str(proposal.get("understand_strategy") or ""),
+        "worked": str(proposal.get("worked_example") or ""),
+        "explain": str(proposal.get("explain_strategy") or ""),
+        "socratic": _mbada_lines(proposal.get("socratic_prompts")),
+        "practice": str(proposal.get("practice_strategy") or ""),
+        "threshold": float(proposal.get("mastery_threshold") or 80.0),
+        "ascend": str(proposal.get("ascend_rule") or ""),
+        "demonstrate": str(proposal.get("demonstrate_strategy") or ""),
+        "transfer": str(proposal.get("transfer_activity") or ""),
+        "recovery": str(proposal.get("recovery_strategy") or ""),
+        "reflection": str(proposal.get("reflection_prompt") or ""),
+        "spacing": _mbada_lines(proposal.get("spacing_plan")),
+        "notes": str(proposal.get("teacher_notes") or ""),
+    }
+
+    for suffix, value in values.items():
+        st.session_state[f"{form_key}_{suffix}"] = value
+
 def render_topic_methodology_manager(
     user,
     selected_topic,
@@ -11514,6 +11807,95 @@ def render_topic_methodology_manager(
         return
 
     methodology = methodology or {}
+
+    proposal_key = (
+        f"mbada_generated_proposal_{plan_topic_id}"
+    )
+
+    st.info(
+        "**MBADA** significa **Metodología Bunseki de "
+        "Aprendizaje por Dominio Adaptativo**. "
+        "Organiza el aprendizaje desde el diagnóstico de "
+        "conocimientos previos hasta la práctica, la demostración "
+        "del dominio, la recuperación y la reflexión."
+    )
+
+    st.caption(
+        "Bunseki puede preparar una propuesta basada en el tema, "
+        "subtema, resultado de aprendizaje, nivel de Bloom y "
+        "evidencia curricular del plan analítico. "
+        "La propuesta es editable y requiere revisión docente."
+    )
+
+    if st.button(
+        "Generar propuesta metodológica",
+        key=f"mbada_generate_proposal_{plan_topic_id}",
+        use_container_width=True,
+    ):
+        try:
+            with st.spinner(
+                "Preparando propuesta metodológica..."
+            ):
+                proposal = generate_mbada_methodology_proposal(
+                    user["id"],
+                    plan_topic_id,
+                )
+
+            st.session_state[
+                proposal_key
+            ] = proposal
+
+            generated_form_key = (
+                f"mbada_form_{plan_topic_id}_"
+                f"{methodology.get('id') or 'new'}"
+            )
+
+            _hydrate_mbada_proposal_form_state(
+                generated_form_key,
+                proposal,
+            )
+
+            st.success(
+                "Propuesta generada. Revisa y edita los campos "
+                "antes de guardarla como borrador."
+            )
+
+            st.rerun()
+
+        except (
+            ValueError,
+            RuntimeError,
+        ) as exc:
+            st.error(
+                str(exc)
+            )
+
+    generated_proposal = st.session_state.get(
+        proposal_key
+    )
+
+    if generated_proposal:
+        methodology = {
+            **methodology,
+            **generated_proposal,
+            "prerequisites_json": generated_proposal.get(
+                "prerequisites"
+            ),
+            "essential_concepts_json": generated_proposal.get(
+                "essential_concepts"
+            ),
+            "socratic_prompts_json": generated_proposal.get(
+                "socratic_prompts"
+            ),
+            "spacing_plan_json": generated_proposal.get(
+                "spacing_plan"
+            ),
+        }
+
+        st.success(
+            "Propuesta cargada para revisión docente. "
+            "Puedes modificar cualquier campo antes de guardarla."
+        )
 
     form_key = (
         f"mbada_form_{plan_topic_id}_"
@@ -11791,6 +12173,13 @@ def render_topic_methodology_manager(
                 spacing_plan,
             "teacher_notes":
                 teacher_notes.strip(),
+            "ai_generated": bool(
+                methodology.get("ai_generated", False)
+            ),
+            "ai_model": methodology.get("ai_model"),
+            "prompt_version": methodology.get(
+                "prompt_version"
+            ),
         }
 
         try:
@@ -11802,6 +12191,11 @@ def render_topic_methodology_manager(
                 methodology_id=methodology.get(
                     "id"
                 ),
+            )
+
+            st.session_state.pop(
+                proposal_key,
+                None,
             )
 
             st.success(
@@ -11898,10 +12292,12 @@ def render_topic_methodology_manager(
                 )
 
     st.caption(
-        "R8.22C1 habilita autoría, revisión y aprobación "
-        "manual. La propuesta automática con IA se "
-        "incorporará en R8.22D."
+        "La propuesta metodológica es un borrador editable. "
+        "La revisión y aprobación continúan bajo responsabilidad "
+        "del docente."
     )
+
+
 
 
 def render_teacher_plan_manager(user):
