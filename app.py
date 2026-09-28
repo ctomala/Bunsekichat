@@ -8216,6 +8216,34 @@ def _adaptive_practice_autosave_answer(
         connection.close()
 
 
+# BUNSEKI_R8_22E5_STALE_MBADA_ROUND_RECONCILIATION
+def get_student_latest_route_practice_difficulty(user_id, topic, subtopic):
+    """Return the most recently served difficulty for one curricular route."""
+    row = fetchone(
+        """
+        SELECT s.difficulty_level
+        FROM ai_practice_question_serves s
+        JOIN assessment_attempt_answers a
+          ON a.answer_json->>'serve_batch_key'=s.serve_batch_key
+         AND a.answer_json->>'bank_question_id'=s.bank_question_id::text
+        JOIN assessment_attempts t ON t.id=a.attempt_id
+        WHERE s.user_id=%s
+          AND t.user_id=s.user_id
+          AND s.topic=%s
+          AND s.subtopic=%s
+          AND a.first_answered_at IS NOT NULL
+        ORDER BY a.first_answered_at DESC, a.id DESC
+        LIMIT 1
+        """,
+        (int(user_id), str(topic), str(subtopic)),
+    )
+    if not row:
+        return None
+    value = row.get("difficulty_level")
+    if not value:
+        return None
+    return normalize_adaptive_difficulty(value)
+
 def adaptive_practice_next_difficulty(current_difficulty, correct, total):
 
     current = normalize_adaptive_difficulty(current_difficulty)
@@ -8683,6 +8711,78 @@ def _ai_practice_count_value(row):
     return int(row[0] or 0)
 
 
+# BUNSEKI_R8_22E4_ADAPTIVITY_SEMANTIC_DEDUP
+def _mbada_question_semantic_signature(question):
+    import re
+    import unicodedata
+    text = str(question or "").strip().casefold()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text_for_numbers = re.sub(r"\b([a-z])\d+\b", r"\1", text)
+    numbers = tuple(
+        token.replace(",", ".")
+        for token in re.findall(r"-?\d+(?:[.,]\d+)?", text_for_numbers)
+    )
+    words = set(re.findall(r"[a-z]+", text))
+    if words & {"distancia", "magnitud", "norma", "longitud", "euclidiana", "euclidea"}:
+        family = "norm_distance"
+    elif words & {"factoriza", "factorizar", "factorizacion"}:
+        family = "factor"
+    elif words & {"simplifica", "simplificar", "simplificacion"}:
+        family = "simplify"
+    elif words & {"suma", "sumar", "adicion"}:
+        family = "sum"
+    else:
+        family = ""
+    stop = {
+        "cual", "es", "el", "la", "los", "las", "de", "del", "un", "una",
+        "en", "y", "si", "su", "sus", "valor", "calcula", "determina", "halla",
+    }
+    content_words = {word for word in words if word not in stop}
+    return {
+        "numbers": numbers,
+        "family": family,
+        "words": content_words,
+        "normalized": " ".join(text.split()),
+    }
+
+
+def _mbada_questions_semantically_equivalent(question_a, question_b):
+    a = _mbada_question_semantic_signature(question_a)
+    b = _mbada_question_semantic_signature(question_b)
+
+    if not a["normalized"] or not b["normalized"]:
+        return False
+
+    if a["normalized"] == b["normalized"]:
+        return True
+
+    numbers_a = a["numbers"]
+    numbers_b = b["numbers"]
+
+    # Different numerical data define a different mathematical exercise,
+    # even when the wording is almost identical.
+    if numbers_a or numbers_b:
+        if numbers_a != numbers_b:
+            return False
+
+        if (
+            bool(a["family"])
+            and a["family"] == b["family"]
+            and len(numbers_a) >= 2
+        ):
+            return True
+
+        union = a["words"] | b["words"]
+        overlap = len(a["words"] & b["words"]) / max(1, len(union))
+        return bool(len(numbers_a) >= 2 and overlap >= 0.68)
+
+    # Non-numerical items require a much stricter lexical match.
+    union = a["words"] | b["words"]
+    overlap = len(a["words"] & b["words"]) / max(1, len(union))
+    return bool(overlap >= 0.90)
+
+# BUNSEKI_R8_22E5_REALDICT_RESERVE_HOTFIX
 def reserve_ai_practice_bank_questions(
     uid,
     topic,
@@ -8691,128 +8791,227 @@ def reserve_ai_practice_bank_questions(
     n_questions=5,
     round_no=1,
 ):
-    """No-repeat-first allocation; stable within a practice round."""
+    """
+    Stable bank-first allocation with semantic duplicate prevention.
+
+    PostgreSQL connections use RealDictCursor, so every database row is
+    accessed by explicit column alias rather than positional indexes.
+    Historical serve rows remain immutable.
+    """
     ensure_ai_practice_supply_schema()
     difficulty = normalize_adaptive_difficulty(difficulty)
     n_questions = max(1, int(n_questions))
     round_no = max(1, int(round_no))
+
     batch_key = hashlib.sha256(
-        f"r8.21|{int(uid)}|{topic}|{subtopic}|{difficulty}|{round_no}".encode("utf-8")
+        (
+            f"r8.21|{int(uid)}|{topic}|{subtopic}|"
+            f"{difficulty}|{round_no}"
+        ).encode("utf-8")
     ).hexdigest()
 
     connection = conn()
+
     try:
         with connection.cursor() as cur:
+            # Preserve an already-created round across Streamlit reruns.
             cur.execute(
-                "SELECT COUNT(*) FROM ai_practice_question_serves WHERE serve_batch_key=%s",
+                """
+                SELECT
+                    q.id AS bank_question_id,
+                    q.question AS question
+                FROM ai_practice_question_serves s
+                JOIN ai_practice_question_bank q
+                  ON q.id=s.bank_question_id
+                WHERE s.serve_batch_key=%s
+                ORDER BY s.id
+                """,
                 (batch_key,),
             )
-            current = int(_ai_practice_count_value(cur.fetchone()) or 0)
-            missing = max(0, n_questions - current)
+            selected_rows = [
+                dict(row)
+                for row in cur.fetchall()
+            ]
 
-            if missing:
-                cur.execute(
-                    """
-                    WITH candidate AS (
-                        SELECT q.id
-                        FROM ai_practice_question_bank q
-                        WHERE q.topic=%s
-                          AND q.subtopic=%s
-                          AND q.difficulty_level=%s
-                          AND q.verification_status='verified'
-                          AND q.active=TRUE
-                          AND NOT EXISTS (
-                              SELECT 1
-                              FROM ai_practice_question_serves mine
-                              WHERE mine.user_id=%s
-                                AND mine.bank_question_id=q.id
-                          )
-                          AND NOT EXISTS (
-                              SELECT 1
-                              FROM ai_practice_question_serves recent
-                              WHERE recent.bank_question_id=q.id
-                                AND recent.user_id<>%s
-                                AND recent.served_at >= CURRENT_TIMESTAMP - INTERVAL '30 minutes'
-                          )
-                        ORDER BY
-                            (
-                                SELECT COUNT(*)
-                                FROM ai_practice_question_serves recent24
-                                WHERE recent24.bank_question_id=q.id
-                                  AND recent24.served_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
-                            ) ASC,
-                            q.usage_count ASC,
-                            RANDOM()
-                        FOR UPDATE SKIP LOCKED
-                        LIMIT %s
-                    )
-                    INSERT INTO ai_practice_question_serves(
-                        bank_question_id,user_id,serve_batch_key,
-                        topic,subtopic,difficulty_level
-                    )
-                    SELECT id,%s,%s,%s,%s,%s FROM candidate
-                    ON CONFLICT DO NOTHING
-                    """,
-                    (
-                        topic, subtopic, difficulty,
-                        int(uid), int(uid), int(missing),
-                        int(uid), batch_key, topic, subtopic, difficulty,
-                    ),
-                )
+            selected_questions = [
+                str(row.get("question") or "")
+                for row in selected_rows
+            ]
 
+            # Avoid mathematically equivalent tasks previously served to this
+            # student in the same curricular route. History is read-only here.
             cur.execute(
-                "SELECT COUNT(*) FROM ai_practice_question_serves WHERE serve_batch_key=%s",
-                (batch_key,),
+                """
+                SELECT
+                    q.question AS question
+                FROM ai_practice_question_serves s
+                JOIN ai_practice_question_bank q
+                  ON q.id=s.bank_question_id
+                JOIN ai_practice_question_attempts reviewed
+                  ON reviewed.user_id=s.user_id
+                 AND reviewed.bank_question_id=s.bank_question_id
+                WHERE s.user_id=%s
+                  AND s.serve_batch_key<>%s
+                  AND s.topic=%s
+                  AND s.subtopic=%s
+                """,
+                (
+                    int(uid),
+                    batch_key,
+                    topic,
+                    subtopic,
+                ),
             )
-            current = int(_ai_practice_count_value(cur.fetchone()) or 0)
-            missing = max(0, n_questions - current)
+            historical_questions = [
+                str(row.get("question") or "")
+                for row in cur.fetchall()
+            ]
 
-            if missing:
-                cur.execute(
+            missing = max(
+                0,
+                n_questions - len(selected_rows),
+            )
+
+            for avoid_recent_other_students in (True, False):
+                if missing <= 0:
+                    break
+
+                recent_clause = (
                     """
-                    WITH candidate AS (
-                        SELECT q.id
-                        FROM ai_practice_question_bank q
-                        WHERE q.topic=%s
-                          AND q.subtopic=%s
-                          AND q.difficulty_level=%s
-                          AND q.verification_status='verified'
-                          AND q.active=TRUE
-                          AND NOT EXISTS (
-                              SELECT 1
-                              FROM ai_practice_question_serves same_batch
-                              WHERE same_batch.serve_batch_key=%s
-                                AND same_batch.bank_question_id=q.id
-                          )
-                        ORDER BY
-                            (
-                                SELECT MAX(previous.served_at)
-                                FROM ai_practice_question_serves previous
-                                WHERE previous.bank_question_id=q.id
-                                  AND previous.user_id=%s
-                            ) ASC NULLS FIRST,
-                            q.usage_count ASC,
-                            RANDOM()
-                        FOR UPDATE SKIP LOCKED
-                        LIMIT %s
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM ai_practice_question_serves recent
+                        WHERE recent.bank_question_id=q.id
+                          AND recent.user_id<>%s
+                          AND recent.served_at >=
+                              CURRENT_TIMESTAMP - INTERVAL '30 minutes'
                     )
-                    INSERT INTO ai_practice_question_serves(
-                        bank_question_id,user_id,serve_batch_key,
-                        topic,subtopic,difficulty_level
-                    )
-                    SELECT id,%s,%s,%s,%s,%s FROM candidate
-                    ON CONFLICT DO NOTHING
-                    """,
-                    (
-                        topic, subtopic, difficulty, batch_key,
-                        int(uid), int(missing),
-                        int(uid), batch_key, topic, subtopic, difficulty,
-                    ),
+                    """
+                    if avoid_recent_other_students
+                    else ""
                 )
+
+                params = [
+                    topic,
+                    subtopic,
+                    difficulty,
+                    int(uid),
+                ]
+
+                if avoid_recent_other_students:
+                    params.append(int(uid))
+
+                params.append(
+                    max(
+                        80,
+                        n_questions * 20,
+                    )
+                )
+
+                cur.execute(
+                    f"""
+                    SELECT
+                        q.id AS bank_question_id,
+                        q.question AS question
+                    FROM ai_practice_question_bank q
+                    WHERE q.topic=%s
+                      AND q.subtopic=%s
+                      AND q.difficulty_level=%s
+                      AND q.verification_status='verified'
+                      AND q.active=TRUE
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM ai_practice_question_attempts mine
+                          WHERE mine.user_id=%s
+                            AND mine.bank_question_id=q.id
+                      )
+                      {recent_clause}
+                    ORDER BY
+                        q.usage_count ASC,
+                        RANDOM()
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT %s
+                    """,
+                    tuple(params),
+                )
+
+                candidates = [
+                    dict(row)
+                    for row in cur.fetchall()
+                ]
+
+                for row in candidates:
+                    bank_question_id = int(
+                        row["bank_question_id"]
+                    )
+                    question = str(
+                        row.get("question")
+                        or ""
+                    )
+
+                    if (
+                        subtopic.strip().casefold() == "teorema de pitágoras"
+                        and any(term in question.casefold() for term in (
+                            "ortonormal", "matriz ortogonal", "transformación lineal"
+                        ))
+                    ):
+                        continue
+
+                    if any(
+                        _mbada_questions_semantically_equivalent(
+                            question,
+                            previous_question,
+                        )
+                        for previous_question in (
+                            historical_questions
+                            + selected_questions
+                        )
+                    ):
+                        continue
+
+                    cur.execute(
+                        """
+                        INSERT INTO ai_practice_question_serves(
+                            bank_question_id,
+                            user_id,
+                            serve_batch_key,
+                            topic,
+                            subtopic,
+                            difficulty_level
+                        )
+                        VALUES(%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT DO NOTHING
+                        RETURNING id
+                        """,
+                        (
+                            bank_question_id,
+                            int(uid),
+                            batch_key,
+                            topic,
+                            subtopic,
+                            difficulty,
+                        ),
+                    )
+
+                    inserted = cur.fetchone()
+
+                    if not inserted:
+                        continue
+
+                    selected_questions.append(
+                        question
+                    )
+                    missing -= 1
+
+                    if missing <= 0:
+                        break
+
         connection.commit()
+
     except Exception:
         connection.rollback()
         raise
+
     finally:
         connection.close()
 
@@ -8820,14 +9019,26 @@ def reserve_ai_practice_bank_questions(
         """
         SELECT q.*
         FROM ai_practice_question_serves s
-        JOIN ai_practice_question_bank q ON q.id=s.bank_question_id
+        JOIN ai_practice_question_bank q
+          ON q.id=s.bank_question_id
         WHERE s.serve_batch_key=%s
         ORDER BY s.id
         LIMIT %s
         """,
-        (batch_key, n_questions),
+        (
+            batch_key,
+            n_questions,
+        ),
     )
-    return _ai_practice_rows_to_items(rows, topic, subtopic, difficulty)
+
+    return _ai_practice_rows_to_items(
+        rows,
+        topic,
+        subtopic,
+        difficulty,
+    )
+
+
 
 
 def render_admin_ai_practice_bank_manager(user):
@@ -8928,8 +9139,10 @@ def _store_ai_practice_items(items, verifications):
             (item["topic"], item["subtopic"], item["difficulty_level"]),
         )
         if any(
-            _ai_practice_question_similarity(item["question"], row.get("question"))
-            >= AI_PRACTICE_NEAR_DUPLICATE_THRESHOLD
+            _mbada_questions_semantically_equivalent(
+                item["question"],
+                row.get("question"),
+            )
             for row in existing
         ):
             continue
@@ -9000,6 +9213,7 @@ CRITERIO COGNITIVO:
 
 REGLAS ESTRICTAS:
 - Evalúa EXCLUSIVAMENTE el subtema "{subtopic}".
+- Para Teorema de Pitágoras, exige cálculo de magnitudes o componentes mediante suma de cuadrados; no evalúes bases ortonormales, matrices ortogonales ni transformaciones lineales.
 - No mezcles otros temas o subtemas.
 - Cada pregunta debe tener exactamente 4 opciones distintas.
 - Debe existir una sola respuesta inequívocamente correcta.
@@ -9021,15 +9235,24 @@ Formato:
 ]
 """
 
-    response = _ai_practice_generate_content_resilient(
-        client,
-        prompt,
-        purpose="generación de preguntas",
-    )
-    parsed = _safe_json_loads(response.text, [])
+    parsed = []
+    for generation_attempt in range(3):
+        response = _ai_practice_generate_content_resilient(
+            client,
+            prompt,
+            purpose="generación de preguntas",
+        )
+        parsed = _safe_json_loads(response.text, [])
+        if isinstance(parsed, list) and parsed:
+            break
+        # Response bodies are not logged: they may contain student data.
+        prompt += (
+            "\nIMPORTANTE: el intento anterior no se pudo interpretar. "
+            "Responde únicamente con un arreglo JSON válido, sin texto adicional."
+        )
     if not isinstance(parsed, list) or not parsed:
         raise RuntimeError(
-            "La IA no devolvió un lote JSON válido de preguntas."
+            "La IA no devolvió un lote JSON válido tras 3 intentos."
         )
 
     clean = []
@@ -9042,6 +9265,15 @@ Formato:
             difficulty,
         )
         if not item or item["item_code"] in seen:
+            continue
+        if (
+            subtopic.strip().casefold() == "teorema de pitágoras"
+            and any(
+                term in item["question"].casefold()
+                for term in ("ortonormal", "matriz ortogonal", "transformación lineal")
+            )
+        ):
+            # Preserve the student's existing answers; reject only NEW items.
             continue
         seen.add(item["item_code"])
         clean.append(item)
@@ -9210,6 +9442,77 @@ def record_ai_practice_bank_result(
     return True
 
 
+# BUNSEKI_R8_22E8_ATOMIC_BATCH_BANK_REVIEW
+def record_ai_practice_bank_results_batch(records):
+    """Write all reviewed bank results with one connection and transaction."""
+    if not records:
+        return 0
+    ensure_ai_practice_bank_schema()
+    payload = []
+    for record in records:
+        bank_id = record["item"].get("bank_question_id")
+        if bank_id:
+            payload.append({
+                "bank_question_id": int(bank_id),
+                "user_id": int(record["uid"]),
+                "attempt_key": str(record["attempt_key"]),
+                "topic": str(record["topic"]),
+                "subtopic": str(record["subtopic"]),
+                "difficulty_level": normalize_adaptive_difficulty(record["difficulty"]),
+                "user_answer": normalize_spaces(record["answer"]),
+                "is_correct": bool(record["is_correct"]),
+            })
+    if not payload:
+        return 0
+    connection = conn()
+    try:
+        connection.autocommit = False
+        with connection.cursor() as cur:
+            cur.execute("""
+                WITH inserted AS (
+                    INSERT INTO ai_practice_question_attempts(
+                        bank_question_id,user_id,attempt_key,topic,subtopic,
+                        difficulty_level,user_answer,is_correct
+                    )
+                    SELECT bank_question_id,user_id,attempt_key,topic,subtopic,
+                           difficulty_level,user_answer,is_correct
+                    FROM jsonb_to_recordset(%s::jsonb) AS r(
+                        bank_question_id bigint,user_id integer,attempt_key text,
+                        topic text,subtopic text,difficulty_level text,
+                        user_answer text,is_correct boolean
+                    )
+                    ON CONFLICT(attempt_key) DO NOTHING
+                    RETURNING bank_question_id,is_correct
+                ), totals AS (
+                    SELECT bank_question_id,COUNT(*) AS n,
+                           COUNT(*) FILTER (WHERE is_correct) AS correct_n,
+                           COUNT(*) FILTER (WHERE NOT is_correct) AS incorrect_n
+                    FROM inserted GROUP BY bank_question_id
+                ), updated AS (
+                    UPDATE ai_practice_question_bank q
+                    SET usage_count=q.usage_count+t.n,
+                        correct_count=q.correct_count+t.correct_n,
+                        incorrect_count=q.incorrect_count+t.incorrect_n,
+                        updated_at=CURRENT_TIMESTAMP
+                    FROM totals t WHERE q.id=t.bank_question_id
+                    RETURNING q.id
+                )
+                SELECT (SELECT COUNT(*) FROM inserted) AS inserted_count,
+                       (SELECT COUNT(*) FROM totals) AS distinct_banks,
+                       (SELECT COUNT(*) FROM updated) AS updated_banks
+            """, (json.dumps(payload, ensure_ascii=False),))
+            row = cur.fetchone()
+            if int(row["distinct_banks"]) != int(row["updated_banks"]):
+                raise RuntimeError("BANK_REVIEW_COUNTER_MISMATCH")
+        connection.commit()
+        return int(row["inserted_count"])
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
 def adaptive_practice_questions(
     uid,
     current_topic,
@@ -9240,7 +9543,7 @@ def adaptive_practice_questions(
                 current_topic,
                 current_subtopic,
                 difficulty,
-                batch_size=max(10, int(n_questions) * 2),
+                batch_size=max(5, int(n_questions)),
             )
             generation_rounds += 1
             reserved = reserve_ai_practice_bank_questions(
@@ -14240,6 +14543,518 @@ def _p5a6_grade_research_quiz_resumable(
 
 
 
+# BUNSEKI_R8_22E1_STUDENT_MASTERY_FOUNDATION
+MBADA_STUDENT_MASTERY_VERSION = "R8.22E1-1.0"
+
+
+def _mbada_student_norm(value):
+    import unicodedata
+
+    text = str(value or "").strip().casefold()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(
+        ch for ch in text
+        if not unicodedata.combining(ch)
+    )
+    return " ".join(text.split())
+
+
+def get_student_approved_mbada_methodologies(profile):
+    """Return only approved MBADA routes compatible with the student's academic context."""
+    academic_context = academic_context_from_profile(profile)
+
+    rows = fetchall(
+        """
+        SELECT
+            m.id,
+            m.plan_topic_id,
+            m.framework_code,
+            m.framework_version,
+            m.version_no,
+            m.status,
+            m.pedagogical_objective,
+            m.guiding_question,
+            m.mastery_threshold,
+            m.spacing_plan_json,
+            p.plan_id,
+            p.unit_name,
+            p.topic,
+            p.subtopic,
+            p.learning_outcome,
+            p.bloom_level,
+            a.subject,
+            a.course_level,
+            a.parallel,
+            a.shift,
+            a.course
+        FROM plan_topic_methodologies m
+        JOIN plan_topics p
+          ON p.id = m.plan_topic_id
+        JOIN analytic_plans a
+          ON a.id = p.plan_id
+        WHERE m.status = 'approved'
+          AND m.framework_code = 'MBADA'
+        ORDER BY a.id, p.id, m.version_no DESC
+        """
+    )
+
+    context_subject = _mbada_student_norm(
+        academic_context.get("subject")
+        or profile.get("subject")
+    )
+    context_course = _mbada_student_norm(
+        academic_context.get("course")
+        or profile.get("course")
+    )
+    context_parallel = _mbada_student_norm(
+        academic_context.get("parallel")
+        or profile.get("parallel")
+    )
+    context_shift = _mbada_student_norm(
+        academic_context.get("shift")
+        or profile.get("shift")
+    )
+    context_level = str(
+        academic_context.get("course_level")
+        or profile.get("course_level")
+        or ""
+    ).strip()
+
+    compatible = []
+
+    for row in rows:
+        row_subject = _mbada_student_norm(
+            row.get("subject")
+        )
+        row_course = _mbada_student_norm(
+            row.get("course")
+        )
+        row_parallel = _mbada_student_norm(
+            row.get("parallel")
+        )
+        row_shift = _mbada_student_norm(
+            row.get("shift")
+        )
+        row_level = str(
+            row.get("course_level")
+            or ""
+        ).strip()
+
+        score = 0
+        has_context = False
+
+        if context_subject:
+            has_context = True
+
+            if not row_subject:
+                continue
+
+            if context_subject == row_subject:
+                score += 8
+            elif (
+                context_subject in row_subject
+                or row_subject in context_subject
+            ):
+                score += 6
+            else:
+                continue
+
+        if context_course and row_course:
+            has_context = True
+
+            if context_course == row_course:
+                score += 4
+            elif (
+                context_course in row_course
+                or row_course in context_course
+            ):
+                score += 2
+
+        if context_parallel and row_parallel:
+            has_context = True
+
+            if context_parallel == row_parallel:
+                score += 3
+
+        if context_shift and row_shift:
+            has_context = True
+
+            if context_shift == row_shift:
+                score += 2
+
+        if context_level and row_level:
+            has_context = True
+
+            if context_level == row_level:
+                score += 2
+
+        if not has_context:
+            continue
+
+        row = dict(row)
+        row["_context_score"] = score
+        compatible.append(row)
+
+    compatible.sort(
+        key=lambda item: (
+            -int(item.get("_context_score") or 0),
+            int(item.get("plan_id") or 0),
+            int(item.get("plan_topic_id") or 0),
+            -int(item.get("version_no") or 0),
+        )
+    )
+
+    return compatible
+
+
+def get_student_topic_mastery(
+    user_id,
+    plan_topic_id,
+    methodology_id,
+):
+    return fetchone(
+        """
+        SELECT *
+        FROM student_topic_mastery
+        WHERE user_id=%s
+          AND plan_topic_id=%s
+          AND methodology_id=%s
+        """,
+        (
+            int(user_id),
+            int(plan_topic_id),
+            int(methodology_id),
+        ),
+    )
+
+
+def _mbada_mastery_state(
+    mastery_score,
+    mastery_threshold,
+    attempts_count,
+):
+    score = float(mastery_score or 0)
+    threshold = float(
+        mastery_threshold
+        if mastery_threshold is not None
+        else 80
+    )
+
+    if int(attempts_count or 0) <= 0:
+        return "not_started"
+
+    if score >= threshold:
+        return "mastered"
+
+    proficient_floor = max(
+        60.0,
+        threshold - 10.0,
+    )
+
+    if score >= proficient_floor:
+        return "proficient"
+
+    return "developing"
+
+
+def record_student_mbada_practice_result(
+    user_id,
+    methodology,
+    correct_count,
+    total_count,
+    round_no,
+):
+    """
+    Persist one completed MBADA practice round.
+
+    attempts_count is question-level exposure.
+    retrieval_count is completed practice-round exposure.
+    mastery_score is cumulative accuracy for this methodology version.
+    """
+    user_id = int(user_id)
+    methodology_id = int(
+        methodology.get("id")
+        or 0
+    )
+    plan_topic_id = int(
+        methodology.get("plan_topic_id")
+        or 0
+    )
+    round_total = int(total_count or 0)
+    round_correct = int(correct_count or 0)
+    round_no = int(round_no or 0)
+    if round_no <= 0:
+        raise ValueError("La ronda MBADA debe tener un número válido.")
+
+    if methodology_id <= 0 or plan_topic_id <= 0:
+        raise ValueError(
+            "La ruta MBADA seleccionada no tiene trazabilidad curricular válida."
+        )
+
+    if round_total <= 0:
+        raise ValueError(
+            "La práctica MBADA debe contener al menos una pregunta."
+        )
+
+    if round_correct < 0 or round_correct > round_total:
+        raise ValueError(
+            "El resultado de práctica MBADA es inválido."
+        )
+
+    c = conn()
+
+    try:
+        c.autocommit = False
+
+        with c.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    plan_topic_id,
+                    status,
+                    mastery_threshold
+                FROM plan_topic_methodologies
+                WHERE id=%s
+                FOR SHARE
+                """,
+                (methodology_id,),
+            )
+            approved_methodology = cur.fetchone()
+
+            if not approved_methodology:
+                raise ValueError(
+                    "La metodología MBADA ya no está disponible."
+                )
+
+            if (
+                int(approved_methodology["plan_topic_id"])
+                != plan_topic_id
+            ):
+                raise ValueError(
+                    "La metodología MBADA no corresponde al tema curricular seleccionado."
+                )
+
+            if str(
+                approved_methodology["status"]
+                or ""
+            ).lower() != "approved":
+                raise ValueError(
+                    "Solo una metodología MBADA aprobada puede registrar dominio."
+                )
+
+            threshold = float(
+                approved_methodology["mastery_threshold"]
+                or 80
+            )
+
+            # Serializa también la primera ronda, cuando aún no existe
+            # una fila de dominio que pueda bloquearse con FOR UPDATE.
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(%s, %s)",
+                (user_id, methodology_id),
+            )
+            cur.execute(
+                """
+                SELECT *
+                FROM student_topic_mastery
+                WHERE user_id=%s
+                  AND plan_topic_id=%s
+                  AND methodology_id=%s
+                FOR UPDATE
+                """,
+                (
+                    user_id,
+                    plan_topic_id,
+                    methodology_id,
+                ),
+            )
+            previous = cur.fetchone()
+
+            prior_attempts = int(
+                previous["attempts_count"]
+                if previous
+                else 0
+            )
+            prior_correct = int(
+                previous["correct_count"]
+                if previous
+                else 0
+            )
+            prior_feedback = int(
+                previous["feedback_count"]
+                if previous
+                else 0
+            )
+            prior_retrieval = int(
+                previous["retrieval_count"]
+                if previous
+                else 0
+            )
+            if round_no <= prior_retrieval:
+                # Reintento tras pérdida de sesión: el dominio ya fue contado.
+                c.rollback()
+                existing = dict(previous)
+                existing["mastery_threshold"] = threshold
+                existing["round_score"] = round(
+                    round_correct / round_total * 100.0, 2
+                )
+                return existing
+            if round_no != prior_retrieval + 1:
+                raise ValueError(
+                    f"Ronda MBADA fuera de secuencia: {round_no}; "
+                    f"siguiente esperada: {prior_retrieval + 1}."
+                )
+            prior_score = float(
+                previous["mastery_score"]
+                if previous
+                else 0
+            )
+
+            attempts_count = (
+                prior_attempts
+                + round_total
+            )
+            cumulative_correct = (
+                prior_correct
+                + round_correct
+            )
+            feedback_count = (
+                prior_feedback
+                + round_total
+            )
+            retrieval_count = (
+                prior_retrieval
+                + 1
+            )
+
+            mastery_score = round(
+                (
+                    cumulative_correct
+                    / max(1, attempts_count)
+                )
+                * 100.0,
+                2,
+            )
+
+            mastery_state = _mbada_mastery_state(
+                mastery_score,
+                threshold,
+                attempts_count,
+            )
+
+            error_persistence_index = round(
+                (
+                    attempts_count
+                    - cumulative_correct
+                )
+                / max(1, attempts_count),
+                4,
+            )
+
+            mastery_velocity = (
+                round(
+                    mastery_score
+                    - prior_score,
+                    2,
+                )
+                if prior_attempts > 0
+                else None
+            )
+
+            if previous:
+                cur.execute(
+                    """
+                    UPDATE student_topic_mastery
+                    SET
+                        mastery_state=%s,
+                        mastery_score=%s,
+                        attempts_count=%s,
+                        correct_count=%s,
+                        feedback_count=%s,
+                        retrieval_count=%s,
+                        mastery_velocity=%s,
+                        error_persistence_index=%s,
+                        last_activity_at=NOW(),
+                        calculated_at=NOW(),
+                        updated_at=NOW()
+                    WHERE id=%s
+                    RETURNING *
+                    """,
+                    (
+                        mastery_state,
+                        mastery_score,
+                        attempts_count,
+                        cumulative_correct,
+                        feedback_count,
+                        retrieval_count,
+                        mastery_velocity,
+                        error_persistence_index,
+                        previous["id"],
+                    ),
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO student_topic_mastery (
+                        user_id,
+                        plan_topic_id,
+                        methodology_id,
+                        mastery_state,
+                        mastery_score,
+                        attempts_count,
+                        correct_count,
+                        feedback_count,
+                        retrieval_count,
+                        error_persistence_index,
+                        first_activity_at,
+                        last_activity_at,
+                        calculated_at
+                    )
+                    VALUES (
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s,
+                        NOW(), NOW(), NOW()
+                    )
+                    RETURNING *
+                    """,
+                    (
+                        user_id,
+                        plan_topic_id,
+                        methodology_id,
+                        mastery_state,
+                        mastery_score,
+                        attempts_count,
+                        cumulative_correct,
+                        feedback_count,
+                        retrieval_count,
+                        error_persistence_index,
+                    ),
+                )
+
+            row = cur.fetchone()
+
+        c.commit()
+
+        result = dict(row)
+        result["mastery_threshold"] = threshold
+        result["round_score"] = round(
+            (
+                round_correct
+                / max(1, round_total)
+            )
+            * 100.0,
+            2,
+        )
+        return result
+
+    except Exception:
+        c.rollback()
+        raise
+
+    finally:
+        c.close()
+
 def render_student_adaptive_evaluation(user, prof, topic, subtopic):
 
     academic_context = academic_context_from_profile(prof)
@@ -17539,7 +18354,7 @@ def student_page(user):
 
         practice_topic = st.selectbox(
 
-            "Tema de práctica",
+            "Tema para práctica libre",
 
             practice_topics,
 
@@ -17581,7 +18396,7 @@ def student_page(user):
             st.session_state[subtopic_state_key] = default_practice_subtopic
 
         practice_subtopic = st.selectbox(
-            "Subtema de práctica",
+            "Subtema para práctica libre",
             practice_subtopics,
             key=subtopic_state_key,
             help=(
@@ -17590,6 +18405,125 @@ def student_page(user):
                 "Trigonometría o Geometría analítica."
             ),
         )
+        active_mbada_methodology = None
+        available_mbada_methodologies = (
+            get_student_approved_mbada_methodologies(
+                prof
+            )
+        )
+
+        if available_mbada_methodologies:
+            use_mbada_route = st.checkbox(
+                "Usar ruta de dominio MBADA aprobada",
+                value=True,
+                key=f"student_mbada_route_enabled_{user['id']}",
+                help=(
+                    "MBADA significa Metodología Bunseki de "
+                    "Aprendizaje por Dominio Adaptativo."
+                ),
+            )
+
+            if use_mbada_route:
+                mbada_ids = [
+                    int(item["id"])
+                    for item in available_mbada_methodologies
+                ]
+                mbada_map = {
+                    int(item["id"]): item
+                    for item in available_mbada_methodologies
+                }
+
+                selected_mbada_id = st.selectbox(
+                    "Ruta MBADA aprobada",
+                    mbada_ids,
+                    format_func=lambda value: (
+                        f"{mbada_map[value].get('unit_name') or 'Unidad'} · "
+                        f"{mbada_map[value].get('topic') or 'Tema'} · "
+                        f"{mbada_map[value].get('subtopic') or 'Subtema'}"
+                    ),
+                    key=f"student_mbada_route_{user['id']}",
+                )
+
+                active_mbada_methodology = (
+                    mbada_map[
+                        int(selected_mbada_id)
+                    ]
+                )
+
+                practice_topic = (
+                    active_mbada_methodology.get("topic")
+                    or practice_topic
+                )
+                practice_subtopic = (
+                    active_mbada_methodology.get("subtopic")
+                    or practice_subtopic
+                )
+
+                st.info(
+                    f"Ruta MBADA activa: {practice_topic} → {practice_subtopic}. "
+                    "Los selectores de práctica libre anteriores no cambian "
+                    "esta ruta aprobada."
+                )
+
+                current_mbada_mastery = (
+                    get_student_topic_mastery(
+                        user["id"],
+                        active_mbada_methodology[
+                            "plan_topic_id"
+                        ],
+                        active_mbada_methodology[
+                            "id"
+                        ],
+                    )
+                )
+
+                mastery_threshold = float(
+                    active_mbada_methodology.get(
+                        "mastery_threshold"
+                    )
+                    or 80
+                )
+
+                st.caption(
+                    "MBADA significa Metodología Bunseki de "
+                    "Aprendizaje por Dominio Adaptativo. "
+                    f"Esta ruta usa el tema curricular aprobado y "
+                    f"un umbral de dominio de {mastery_threshold:.0f}%."
+                )
+
+                st.caption(
+                    "Resultado de aprendizaje: "
+                    + str(
+                        active_mbada_methodology.get(
+                            "learning_outcome"
+                        )
+                        or "—"
+                    )
+                )
+
+                if current_mbada_mastery:
+                    current_score = float(
+                        current_mbada_mastery.get(
+                            "mastery_score"
+                        )
+                        or 0
+                    )
+
+                    st.progress(
+                        max(
+                            0,
+                            min(
+                                100,
+                                int(round(current_score)),
+                            ),
+                        ),
+                        text=(
+                            f"Dominio acumulado: "
+                            f"{current_score:.0f}% · "
+                            f"Estado: "
+                            f"{current_mbada_mastery.get('mastery_state')}"
+                        ),
+                    )
 
         st.session_state[subtopic_value_key] = practice_subtopic
 
@@ -17610,6 +18544,9 @@ def student_page(user):
             f"{strip_accents(practice_topic).lower()}_"
             f"{strip_accents(practice_subtopic).lower()}"
         )
+        if active_mbada_methodology:
+            st.session_state[level_state_key] = "Recomendado"
+            st.session_state[level_value_key] = "Recomendado"
         persisted_level = st.session_state.get(level_value_key)
         if (
             st.session_state.get(level_state_key) not in level_choices
@@ -17629,10 +18566,17 @@ def student_page(user):
 
             key=level_state_key,
 
+            disabled=bool(active_mbada_methodology),
             help="Recomendado parte de tu nivel actual y se ajusta con tus resultados. Los otros niveles permiten práctica libre.",
 
                                             format_func=lambda value: PRACTICE_LEVEL_LABELS.get(value, value),
 )
+        if active_mbada_methodology:
+            practice_level_choice = "Recomendado"
+            st.caption(
+                "Ruta MBADA activa: la dificultad se ajusta automáticamente "
+                "según tu desempeño y el umbral de dominio aprobado."
+            )
 
         st.session_state[level_value_key] = practice_level_choice
         st.caption(PRACTICE_LEVEL_HELP.get(practice_level_choice, ""))
@@ -17690,6 +18634,65 @@ def student_page(user):
             st.session_state[practice_key] = practice_state
 
 
+
+        # R8.22E5: reconcile stale persisted practice metadata with MBADA mastery.
+        if active_mbada_methodology and current_mbada_mastery:
+            completed_mbada_rounds = int(
+                current_mbada_mastery.get("retrieval_count") or 0
+            )
+            active_state_round = max(
+                1,
+                int(practice_state.get("round") or 1),
+            )
+
+            stale_completed_round = (
+                completed_mbada_rounds >= active_state_round
+                and practice_state.get("result") is None
+            )
+
+            if stale_completed_round:
+                latest_route_difficulty = (
+                    get_student_latest_route_practice_difficulty(
+                        user["id"],
+                        practice_topic,
+                        practice_subtopic,
+                    )
+                )
+
+                base_difficulty = (
+                    latest_route_difficulty
+                    or normalize_adaptive_difficulty(
+                        practice_state.get("difficulty")
+                        or profile_level
+                        or "Básico"
+                    )
+                )
+
+                cumulative_mastery_score = float(
+                    current_mbada_mastery.get("mastery_score") or 0
+                )
+
+                reconciled_difficulty, _ = (
+                    adaptive_practice_next_difficulty(
+                        base_difficulty,
+                        cumulative_mastery_score,
+                        100,
+                    )
+                )
+
+                practice_state["round"] = completed_mbada_rounds + 1
+                practice_state["difficulty"] = reconciled_difficulty
+                practice_state["result"] = None
+                practice_state["items"] = []
+                practice_state["items_signature"] = None
+                practice_state["selection_signature"] = selection_signature
+                st.session_state[practice_key] = practice_state
+
+                st.caption(
+                    "Continuidad MBADA reconciliada: "
+                    f"se inicia la ronda {completed_mbada_rounds + 1} "
+                    f"en nivel {reconciled_difficulty}."
+                )
 
         if practice_level_choice == "Recomendado":
 
@@ -17963,11 +18966,18 @@ def student_page(user):
 
             else:
 
+                # R8.22E7: visible review progress and scoped runtime timings.
+                import time as _mbada_review_time
+                _mbada_review_started = _mbada_review_time.perf_counter()
+                st.info("Revisando respuestas y actualizando el dominio…")
+                _mbada_bank_seconds = 0.0
+
                 reviewed = []
 
                 correct_count = 0
 
                 weak_topics = []
+                bank_review_records = []
 
                 for i, item in enumerate(practice_items, start=1):
 
@@ -17997,20 +19007,20 @@ def student_page(user):
                         "is_correct": ok,
 
                     })
-                    record_ai_practice_bank_result(
-                        user["id"],
-                        item,
-                        answer,
-                        ok,
-                        practice_topic,
-                        practice_subtopic,
-                        practice_difficulty,
-                        attempt_key=(
+                    bank_review_records.append({
+                        "uid": user["id"], "item": item, "answer": answer,
+                        "is_correct": ok, "topic": practice_topic,
+                        "subtopic": practice_subtopic, "difficulty": practice_difficulty,
+                        "attempt_key": (
                             f"ai_practice|{user['id']}|{practice_topic}|{practice_subtopic}|"
                             f"{practice_difficulty}|{practice_round}|{item.get('item_code') or stable_item_code(item.get('question', ''))}"
                         ),
-                    )
+                    })
 
+                _mbada_bank_start = _mbada_review_time.perf_counter()
+                record_ai_practice_bank_results_batch(bank_review_records)
+                _mbada_bank_seconds = _mbada_review_time.perf_counter() - _mbada_bank_start
+                _mbada_after_bank = _mbada_review_time.perf_counter()
                 next_difficulty, reason = adaptive_practice_next_difficulty(
 
                     practice_difficulty,
@@ -18020,6 +19030,18 @@ def student_page(user):
                     len(practice_items),
 
                 )
+                # R8.22E9: after reaching Advanced in MBADA, a weak round
+                # triggers more Advanced consolidation instead of demotion.
+                if (
+                    active_mbada_methodology
+                    and practice_difficulty == "Avanzado"
+                    and next_difficulty != "Avanzado"
+                ):
+                    next_difficulty = "Avanzado"
+                    reason = (
+                        "Consolidaremos este nivel con nuevos problemas y "
+                        "retroalimentación antes de avanzar."
+                    )
 
                 practice_state["result"] = {
 
@@ -18036,7 +19058,129 @@ def student_page(user):
                     "reason": reason,
 
                 }
+                if active_mbada_methodology:
+                    mbada_record_key = (
+                        f"{active_mbada_methodology['id']}|"
+                        f"{practice_round}|"
+                        f"{practice_topic}|"
+                        f"{practice_subtopic}|"
+                        f"{practice_difficulty}"
+                    )
 
+                    mbada_recorded_keys = set(
+                        str(value)
+                        for value in (
+                            practice_state.get(
+                                "mbada_recorded_keys"
+                            )
+                            or []
+                        )
+                    )
+
+                    try:
+                        if mbada_record_key not in mbada_recorded_keys:
+                            mbada_mastery = (
+                                record_student_mbada_practice_result(
+                                    user["id"],
+                                    active_mbada_methodology,
+                                    correct_count,
+                                    len(practice_items),
+                                    practice_round,
+                                )
+                            )
+
+                            mbada_recorded_keys.add(
+                                mbada_record_key
+                            )
+
+                            practice_state[
+                                "mbada_recorded_keys"
+                            ] = sorted(
+                                mbada_recorded_keys
+                            )
+                        else:
+                            mbada_mastery = (
+                                get_student_topic_mastery(
+                                    user["id"],
+                                    active_mbada_methodology[
+                                        "plan_topic_id"
+                                    ],
+                                    active_mbada_methodology[
+                                        "id"
+                                    ],
+                                )
+                            )
+
+                            if mbada_mastery:
+                                mbada_mastery = dict(
+                                    mbada_mastery
+                                )
+                                mbada_mastery[
+                                    "mastery_threshold"
+                                ] = float(
+                                    active_mbada_methodology.get(
+                                        "mastery_threshold"
+                                    )
+                                    or 80
+                                )
+
+                        if mbada_mastery:
+                            practice_state["result"][
+                                "mbada_mastery"
+                            ] = {
+                                "id": mbada_mastery.get("id"),
+                                "methodology_id": (
+                                    active_mbada_methodology[
+                                        "id"
+                                    ]
+                                ),
+                                "plan_topic_id": (
+                                    active_mbada_methodology[
+                                        "plan_topic_id"
+                                    ]
+                                ),
+                                "mastery_state": (
+                                    mbada_mastery.get(
+                                        "mastery_state"
+                                    )
+                                ),
+                                "mastery_score": float(
+                                    mbada_mastery.get(
+                                        "mastery_score"
+                                    )
+                                    or 0
+                                ),
+                                "mastery_threshold": float(
+                                    mbada_mastery.get(
+                                        "mastery_threshold"
+                                    )
+                                    or active_mbada_methodology.get(
+                                        "mastery_threshold"
+                                    )
+                                    or 80
+                                ),
+                                "attempts_count": int(
+                                    mbada_mastery.get(
+                                        "attempts_count"
+                                    )
+                                    or 0
+                                ),
+                                "correct_count": int(
+                                    mbada_mastery.get(
+                                        "correct_count"
+                                    )
+                                    or 0
+                                ),
+                            }
+
+                    except Exception as mbada_mastery_error:
+                        st.error(
+                            "La práctica fue revisada, pero no se pudo "
+                            "actualizar el registro de dominio MBADA. "
+                            f"Detalle: {mbada_mastery_error}"
+                        )
+
+                _mbada_after_mastery = _mbada_review_time.perf_counter()
                 st.session_state[practice_key] = practice_state
 
                 _adaptive_practice_persist_active(
@@ -18048,6 +19192,17 @@ def student_page(user):
                     practice_state,
                 )
 
+                _mbada_after_persist = _mbada_review_time.perf_counter()
+                print(
+                    "MBADA_REVIEW_TIMING "
+                    f"uid={user['id']} round={practice_round} "
+                    f"bank_s={_mbada_bank_seconds:.3f} "
+                    f"loop_s={_mbada_after_bank - _mbada_review_started:.3f} "
+                    f"mastery_s={_mbada_after_mastery - _mbada_after_bank:.3f} "
+                    f"persist_s={_mbada_after_persist - _mbada_after_mastery:.3f} "
+                    f"total_s={_mbada_after_persist - _mbada_review_started:.3f}",
+                    flush=True,
+                )
                 log_location_event(
 
                     user["id"],
@@ -18069,6 +19224,74 @@ def student_page(user):
 
 
         practice_result = practice_state.get("result")
+        if practice_result:
+            mbada_mastery_result = (
+                practice_result.get(
+                    "mbada_mastery"
+                )
+            )
+
+            if mbada_mastery_result:
+                mastery_score = float(
+                    mbada_mastery_result.get(
+                        "mastery_score"
+                    )
+                    or 0
+                )
+                mastery_threshold = float(
+                    mbada_mastery_result.get(
+                        "mastery_threshold"
+                    )
+                    or 80
+                )
+                mastery_state = str(
+                    mbada_mastery_result.get(
+                        "mastery_state"
+                    )
+                    or "developing"
+                )
+
+                st.markdown(
+                    "#### Ruta de dominio MBADA"
+                )
+
+                st.caption(
+                    "MBADA significa Metodología Bunseki de "
+                    "Aprendizaje por Dominio Adaptativo. "
+                    "El dominio es distinto de la nota de una evaluación."
+                )
+
+                st.progress(
+                    max(
+                        0,
+                        min(
+                            100,
+                            int(round(mastery_score)),
+                        ),
+                    ),
+                    text=(
+                        f"Dominio acumulado: "
+                        f"{mastery_score:.0f}% · "
+                        f"Umbral aprobado: "
+                        f"{mastery_threshold:.0f}%"
+                    ),
+                )
+
+                if mastery_state == "mastered":
+                    st.success(
+                        "Dominio MBADA alcanzado para esta "
+                        "versión metodológica."
+                    )
+                elif mastery_state == "proficient":
+                    st.info(
+                        "Estás cerca del dominio. Continúa con "
+                        "la siguiente práctica adaptada."
+                    )
+                else:
+                    st.info(
+                        "El dominio está en desarrollo. "
+                        "BunsekiChat continuará ajustando la práctica."
+                    )
 
         if practice_result:
 
