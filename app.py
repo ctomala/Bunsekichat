@@ -4101,6 +4101,14 @@ def capture_browser_gps(uid=None, page='', topic='', subtopic='', event_type='gp
 
         st.session_state.current_gps = None
 
+    # Autorización de ubicación independiente del consentimiento académico.
+    # Se solicita de nuevo en cada sesión del navegador.
+    if uid is None or not st.session_state.get(f'gps_consent_{uid}', False):
+        st.session_state.current_gps = None
+        if show_status:
+            st.caption('Ubicación desactivada; puedes usar la práctica sin GPS.')
+        return None
+
     if get_geolocation is None:
 
         if show_status:
@@ -24515,6 +24523,17 @@ if __name__ == "__main__":
     else:
 
         u = st.session_state.user
+
+        st.sidebar.checkbox(
+            "Permitir ubicación durante esta sesión",
+            value=False,
+            key=f"gps_consent_{u['id']}",
+            help=(
+                "Opcional. Si aceptas, el navegador pedirá permiso y la aplicación "
+                "podrá guardar coordenadas precisas con tus interacciones. "
+                "Puedes desactivarlo aquí en cualquier momento; la práctica sigue disponible."
+            ),
+        )
 
         capture_global_gps = True
 
