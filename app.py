@@ -168,7 +168,12 @@ except Exception:
 
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
+if not ADMIN_PASSWORD:
+    try:
+        ADMIN_PASSWORD = str(st.secrets["ADMIN_PASSWORD"]).strip()
+    except Exception:
+        pass
 
 
 
@@ -3205,6 +3210,10 @@ def init_db():
 
                 if not cur.fetchone():
 
+                    if not ADMIN_PASSWORD or ADMIN_PASSWORD == "admin123":
+                        raise RuntimeError(
+                            "Configura ADMIN_PASSWORD antes de crear el usuario administrador."
+                        )
                     cur.execute("INSERT INTO users(username,password_hash,role,active,created_at) VALUES(%s,%s,%s,%s,%s)", (ADMIN_USER, hash_password(ADMIN_PASSWORD), 'admin', True, now()))
 
         finally:
