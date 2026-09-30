@@ -27,6 +27,7 @@ def question_bank_namespace():
     selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
     ns = {"json": json, "re": re, "datetime": datetime}
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(APP_PATH), "exec"), ns)
+    ns["ensure_question_bank_gold_schema"] = lambda: None
     ns["QUESTION_BANK_BLOOM_LEVELS"] = ("Recordar", "Comprender", "Aplicar", "Analizar", "Evaluar", "Crear")
     ns["QUESTION_BANK_DIFFICULTIES"] = ("Básico", "Intermedio", "Avanzado")
     return ns
