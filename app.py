@@ -24315,6 +24315,8 @@ def teacher_scoped_page(user):
 
         "📚 Planes analíticos",
 
+        "🧠 Intervención académica",
+
     )
 
     nav_key = "teacher_scoped_nav_page"
@@ -24433,6 +24435,20 @@ def teacher_scoped_page(user):
         return
 
 
+    if teacher_page == "🧠 Intervención académica":
+
+        st.title("🧠 Intervención académica")
+
+        st.caption(
+            "Anal\u00edtica, seguimiento e intervenci\u00f3n sobre los estudiantes "
+            "de tus cursos y paralelos asignados."
+        )
+
+        render_teacher_intervention_dashboard(user)
+
+        return
+
+
 
     st.title("📊 Dashboard docente")
 
@@ -24491,7 +24507,10 @@ def teacher_scoped_page(user):
 
 
     st.markdown("---")
-    render_teacher_intervention_dashboard(user)
+    st.info(
+        "Para revisar alertas, seguimiento y anal\u00edtica detallada, "
+        "abre la secci\u00f3n de Intervenci\u00f3n acad\u00e9mica desde el men\u00fa docente."
+    )
     st.markdown("---")
 
     st.subheader("🔐 Alcance de seguridad")
