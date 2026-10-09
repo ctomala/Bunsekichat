@@ -24444,6 +24444,42 @@ def teacher_scoped_page(user):
             "de tus cursos y paralelos asignados."
         )
 
+        load_key = "teacher_intervention_loaded"
+
+        if not st.session_state.get(load_key, False):
+
+            st.info(
+                "La anal\u00edtica detallada se carga solo cuando la necesitas, "
+                "para mantener una navegaci\u00f3n m\u00e1s r\u00e1pida."
+            )
+
+            if st.button(
+                "\U0001F4CA Cargar anal\u00edtica de intervenci\u00f3n",
+                key="teacher_load_intervention",
+                use_container_width=True,
+                type="primary",
+            ):
+                st.session_state[load_key] = True
+                st.rerun()
+
+            return
+
+        c_load_1, c_load_2 = st.columns([4, 1])
+
+        with c_load_1:
+            st.caption(
+                "Anal\u00edtica cargada para los cursos y paralelos asignados."
+            )
+
+        with c_load_2:
+            if st.button(
+                "Ocultar",
+                key="teacher_hide_intervention",
+                use_container_width=True,
+            ):
+                st.session_state[load_key] = False
+                st.rerun()
+
         render_teacher_intervention_dashboard(user)
 
         return
