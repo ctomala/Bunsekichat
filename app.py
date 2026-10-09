@@ -24375,6 +24375,17 @@ def teacher_scoped_page(user):
 
         st.write(f"**Paralelos asignados:** {scope['parallels']}")
 
+        st.markdown("---")
+
+        if st.button(
+            "Cerrar sesi\u00f3n",
+            key="teacher_scoped_logout",
+            use_container_width=True,
+        ):
+            st.session_state.clear()
+            st.rerun()
+
+
 
 
     def _sync_teacher_scoped_fallback():
