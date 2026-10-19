@@ -1,0 +1,112 @@
+{
+  "database": "localhost:55440/bunseki_release_qa",
+  "production_access": false,
+  "checks": [
+    {
+      "test": "Create practice attempt through original app function",
+      "status": "PASS"
+    },
+    {
+      "test": "Repeated render retains original attempt ID",
+      "status": "PASS"
+    },
+    {
+      "test": "Five callbacks commit five PostgreSQL answers",
+      "status": "PASS"
+    },
+    {
+      "test": "Saved answers retain question batch identity",
+      "status": "PASS"
+    },
+    {
+      "test": "Fresh session hydrates real persisted attempt",
+      "status": "PASS"
+    },
+    {
+      "test": "Round difficulty and mastery result survive session replacement",
+      "status": "PASS"
+    },
+    {
+      "test": "Topic and subtopic selections restored",
+      "status": "PASS"
+    },
+    {
+      "test": "Autosaved responses survive new connection and session",
+      "status": "PASS"
+    },
+    {
+      "test": "Hydration is guarded on rerun",
+      "status": "PASS"
+    },
+    {
+      "test": "Another user cannot recover this active attempt",
+      "status": "PASS"
+    },
+    {
+      "test": "Another user cannot load saved answers",
+      "status": "PASS"
+    },
+    {
+      "test": "Ownership enforced for load",
+      "status": "PASS"
+    },
+    {
+      "test": "Ownership enforced for save",
+      "status": "PASS"
+    },
+    {
+      "test": "Ownership enforced for resume",
+      "status": "PASS"
+    },
+    {
+      "test": "Ownership enforced for submit",
+      "status": "PASS"
+    },
+    {
+      "test": "Same answer UPSERT does not duplicate or increment change count",
+      "status": "PASS"
+    },
+    {
+      "test": "Changed answer replaces original exactly once",
+      "status": "PASS"
+    },
+    {
+      "test": "Elapsed time persists across reconnect",
+      "status": "PASS"
+    },
+    {
+      "test": "Rollback leaves no partial answer",
+      "status": "PASS"
+    },
+    {
+      "test": "Explicit resume keeps identity and increments reentry count",
+      "status": "PASS"
+    },
+    {
+      "test": "Next round metadata persists without new attempt",
+      "status": "PASS"
+    },
+    {
+      "test": "Next round receives a distinct stable batch",
+      "status": "PASS"
+    },
+    {
+      "test": "Repeated finalization is idempotent",
+      "status": "PASS"
+    },
+    {
+      "test": "Submitted attempt is not recovered as active",
+      "status": "PASS"
+    },
+    {
+      "test": "Late autosave after finalization is rejected",
+      "status": "PASS"
+    }
+  ],
+  "passed": 25,
+  "limitations": [
+    "No real browser restart or server restart in this script",
+    "No external AI calls; synthetic items",
+    "No new certification of timer expiry policy"
+  ]
+}

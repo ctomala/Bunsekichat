@@ -14,8 +14,11 @@ SHA-256 de app.py: 414951733e00f71868b19f4fc2b10aad504888ff684f6c6caf1de66b4805f
 - 68 comprobaciones aisladas aprobadas: equivalencia estructural, claves de widgets, callbacks, respuestas simuladas, navegación y componentes de presentación.
 - El arnés conserva como registro un fallo histórico ya corregido del propio arnés; no se observa un fallo actual de la aplicación en estas comprobaciones.
 - El inventario de la copia recuperada difiere del original por la exclusión de descargas y otros archivos ajenos al despliegue. app.py y los doce archivos UI conservan los hashes certificados.
-- Pendientes: continuidad real de intentos persistidos, autosave, temporizadores y comprobación de navegador con PostgreSQL aislado. Los cuatro grupos pendientes del informe original siguen pendientes.
+- 25 comprobaciones reales de persistencia aprobadas en PostgreSQL 17.11 desechable en localhost:55440: creación y recuperación de intento, autosave de cinco respuestas, aislamiento por usuario, reentrada, conservación de metadatos, tiempo transcurrido, rollback, idempotencia y rechazo de respuestas tardías.
+- 18 comprobaciones adicionales aprobadas con Streamlit AppTest y PostgreSQL real, comparando antes y después de la extracción. Tres respuestas sobreviven al reemplazo completo de sesión y conservan el mismo ID de intento, sin duplicaciones.
+- El proveedor de preguntas de las pruebas usa ítems ficticios; el guardado, recuperación y callbacks emplean las funciones originales y los servicios reales.
+- Límites: no se probaron reinicio físico del navegador o servidor, política completa de expiración, generación externa de IA ni un recorrido completo autenticado Gold/pretest/posttest en producción. Los componentes de persistencia y temporizador no se modifican en esta actualización.
 
 ## Estado de publicación
 
-Propuesta preparada para revisión. No representa todavía un despliegue verificado ni una certificación completa de continuidad. Completar la validación pendiente antes de integrar en main y comprobar la aplicación en Streamlit después del despliegue.
+Pruebas previas aprobadas para integrar esta actualización de presentación y extracción equivalente. La comprobación online debe realizarse después de integrar en main; este informe no certifica todavía el despliegue ni todo el recorrido académico en producción.
