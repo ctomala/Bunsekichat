@@ -1,0 +1,77 @@
+{
+  "browser": "real in-app Chromium browser",
+  "attempt_id": 4,
+  "owner_fixture_id": 2,
+  "other_fixture_id": 3,
+  "initial_round": 1,
+  "final_round": 2,
+  "initial_batch": "f42fb2bd66f52b311301db8aa7b4c9c622e300e5ec7b5ebfc00f57393f8abf15",
+  "final_batch": "1442f34b501ab98e305fc97097b8f03be62124306b12adcce5b3e35ddd47969b",
+  "partial_answers": [
+    "57",
+    "31",
+    "24",
+    null,
+    null
+  ],
+  "review_result": 4,
+  "review_total": 5,
+  "attempt_count": 1,
+  "answer_rows_preserved": 5,
+  "review_rows_after_first_and_second_review": [
+    5,
+    5
+  ],
+  "questions_per_batch": 5,
+  "round_batches_disjoint": true,
+  "elapsed_seconds": [
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "expires_at": null,
+  "external_ai": "SKIP - intentionally disabled",
+  "production_access": false,
+  "checks": {
+    "login": "PASS",
+    "dedicated_view": "PASS",
+    "no_duplicate_in_tutor": "PASS",
+    "topic_subtopic_manual_difficulty": "PASS",
+    "partial_autosave": "PASS",
+    "navigate_tutor_and_progress_return": "PASS",
+    "reload_then_login_recovery": "PASS",
+    "same_tab_logout_login_recovery": "PASS",
+    "other_user_isolation": "PASS",
+    "real_streamlit_process_restart_and_ui_recovery": "PASS",
+    "idempotent_repeated_review": "PASS",
+    "next_round_new_batch_and_manual_difficulty": "PASS",
+    "round_2_recovery_after_restart": "PASS",
+    "sidebar_collapse_reopen_desktop_and_narrow": "PASS"
+  },
+  "ownership_services": [
+    {
+      "operation": "load",
+      "status": "PASS"
+    },
+    {
+      "operation": "save",
+      "status": "PASS"
+    },
+    {
+      "operation": "resume",
+      "status": "PASS"
+    },
+    {
+      "operation": "submit",
+      "status": "PASS"
+    }
+  ],
+  "automated_tests": {
+    "passed": 6,
+    "failed": 0,
+    "duration_seconds": 73.574
+  },
+  "technical_validation_complete": true
+}
