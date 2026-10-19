@@ -1,0 +1,81 @@
+{
+  "passed": 18,
+  "checks": [
+    {
+      "test": "before initial real PostgreSQL-backed Streamlit render",
+      "status": "PASS"
+    },
+    {
+      "test": "before five practice questions rendered",
+      "status": "PASS"
+    },
+    {
+      "test": "before callback 1 saves without UI exception",
+      "status": "PASS"
+    },
+    {
+      "test": "before callback 2 saves without UI exception",
+      "status": "PASS"
+    },
+    {
+      "test": "before callback 3 saves without UI exception",
+      "status": "PASS"
+    },
+    {
+      "test": "before new Streamlit session renders persisted attempt",
+      "status": "PASS"
+    },
+    {
+      "test": "before answers restored after full AppTest session replacement",
+      "status": "PASS"
+    },
+    {
+      "test": "before same attempt ID recovered",
+      "status": "PASS"
+    },
+    {
+      "test": "before exactly three committed answers without rerun duplication",
+      "status": "PASS"
+    },
+    {
+      "test": "after initial real PostgreSQL-backed Streamlit render",
+      "status": "PASS"
+    },
+    {
+      "test": "after five practice questions rendered",
+      "status": "PASS"
+    },
+    {
+      "test": "after callback 1 saves without UI exception",
+      "status": "PASS"
+    },
+    {
+      "test": "after callback 2 saves without UI exception",
+      "status": "PASS"
+    },
+    {
+      "test": "after callback 3 saves without UI exception",
+      "status": "PASS"
+    },
+    {
+      "test": "after new Streamlit session renders persisted attempt",
+      "status": "PASS"
+    },
+    {
+      "test": "after answers restored after full AppTest session replacement",
+      "status": "PASS"
+    },
+    {
+      "test": "after same attempt ID recovered",
+      "status": "PASS"
+    },
+    {
+      "test": "after exactly three committed answers without rerun duplication",
+      "status": "PASS"
+    }
+  ],
+  "limitations": [
+    "Synthetic question provider and mastery writes",
+    "No physical browser or Docker server restart tested"
+  ]
+}
