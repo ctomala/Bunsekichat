@@ -16716,1042 +16716,112 @@ def render_teacher_sidebar():
 # ---------------- Pages ----------------
 
 def landing_page():
-    # BUNSEKI_R8_21_7C_COMPACT_VISUAL_REFINEMENT
-    inject_bunseki_frontend_skin()
-
-    landing_css = """
-    <style>
-    .block-container{
-        padding-top:.35rem!important;
-        padding-bottom:.35rem!important;
-    }
-
-    .bunseki-landing-v3{
-        width:min(1160px,96vw);
-        margin:0 auto;
-    }
-
-    .bunseki-landing-grid-v3{
-        display:grid;
-        grid-template-columns:minmax(0,1.12fr) minmax(320px,.88fr);
-        gap:.78rem;
-        align-items:stretch;
-    }
-
-    .bunseki-landing-main-v3,
-    .bunseki-landing-side-v3{
-        border-radius:24px;
-        border:1px solid rgba(42,27,77,.10);
-        box-shadow:0 12px 30px rgba(42,27,77,.065);
-        overflow:hidden;
-    }
-
-    .bunseki-landing-main-v3{
-        min-height:395px;
-        padding:1.25rem 1.5rem 1.2rem;
-        background:
-            radial-gradient(
-                circle at 8% 4%,
-                rgba(224,23,125,.08),
-                transparent 27%
-            ),
-            linear-gradient(
-                145deg,
-                #ffffff 0%,
-                #fffafd 100%
-            );
-        display:flex;
-        flex-direction:column;
-        justify-content:center;
-    }
-
-    .bunseki-landing-logo-v3{
-        display:block!important;
-        width:min(390px,82%)!important;
-        height:auto!important;
-        max-height:none!important;
-        object-fit:contain!important;
-        margin:0 0 .55rem!important;
-    }
-
-    .bunseki-landing-kicker-v3{
-        color:#E0177D;
-        font-size:.72rem;
-        line-height:1.2;
-        text-transform:uppercase;
-        letter-spacing:.095em;
-        font-weight:850;
-        margin:.15rem 0 .5rem;
-    }
-
-    .bunseki-landing-title-v3{
-        color:#112E55;
-        font-size:clamp(
-            1.8rem,
-            3.2vw,
-            2.7rem
-        );
-        line-height:1.06;
-        letter-spacing:-.025em;
-        font-weight:880;
-        max-width:680px;
-        margin:0 0 .68rem;
-    }
-
-    .bunseki-landing-title-v3 strong{
-        color:#E0177D;
-        font-weight:900;
-        position:relative;
-    }
-
-    .bunseki-landing-title-v3 strong::after{
-        content:"";
-        position:absolute;
-        left:0;
-        right:0;
-        bottom:-.08em;
-        height:3px;
-        border-radius:999px;
-        background:#E0177D;
-    }
-
-    .bunseki-landing-copy-v3{
-        color:#625b73;
-        font-size:.95rem;
-        line-height:1.52;
-        max-width:680px;
-        margin:0;
-    }
-
-    .bunseki-powered-v3{
-        margin-top:.8rem;
-        display:flex;
-        align-items:center;
-        gap:.42rem;
-        color:#4e4860;
-        font-size:.78rem;
-        line-height:1.3;
-        font-weight:650;
-    }
-
-    .bunseki-powered-dot-v3{
-        width:8px;
-        height:8px;
-        border-radius:50%;
-        background:#E0177D;
-        box-shadow:
-            0 0 0 4px
-            rgba(224,23,125,.09);
-        flex:0 0 auto;
-    }
-
-    .bunseki-powered-v3 strong{
-        color:#112E55;
-        font-weight:850;
-    }
-
-    .bunseki-landing-side-v3{
-        padding:1rem 1.08rem;
-        background:
-            linear-gradient(
-                150deg,
-                #112E55 0%,
-                #24183f 100%
-            );
-        color:#ffffff;
-        display:flex;
-        flex-direction:column;
-        justify-content:center;
-    }
-
-    .bunseki-side-eyebrow-v3{
-        color:#ff87bd;
-        font-size:.69rem;
-        text-transform:uppercase;
-        letter-spacing:.09em;
-        font-weight:850;
-        margin-bottom:.3rem;
-    }
-
-    .bunseki-side-title-v3{
-        color:#ffffff;
-        font-size:1.38rem;
-        line-height:1.13;
-        font-weight:850;
-        margin:0 0 .48rem;
-    }
-
-    .bunseki-feature-v3{
-        background:
-            rgba(255,255,255,.075);
-        border:
-            1px solid
-            rgba(255,255,255,.12);
-        border-radius:14px;
-        padding:.63rem .72rem;
-        margin:.27rem 0;
-    }
-
-    .bunseki-feature-v3 h3{
-        color:#ffffff;
-        font-size:.88rem;
-        line-height:1.2;
-        margin:0 0 .16rem;
-        font-weight:800;
-    }
-
-    .bunseki-feature-v3 p{
-        color:rgba(255,255,255,.78);
-        font-size:.76rem;
-        line-height:1.36;
-        margin:0;
-    }
-
-    .bunseki-landing-bottom-v3{
-        width:min(1160px,96vw);
-        margin:.4rem auto 0;
-    }
-
-    .bunseki-landing-note-v3{
-        text-align:center;
-        color:#756d84;
-        font-size:.74rem;
-        line-height:1.32;
-        margin:.2rem 0 0;
-    }
-
-    div[data-testid="stButton"]
-    button[kind="primary"]{
-        min-height:43px!important;
-        border-radius:14px!important;
-        font-size:.92rem!important;
-        font-weight:850!important;
-        background:
-            linear-gradient(
-                90deg,
-                #D4147F,
-                #FF2F93
-            )!important;
-        border:none!important;
-    }
-
-    @media(max-width:850px){
-        .bunseki-landing-grid-v3{
-            grid-template-columns:1fr;
-            gap:.55rem;
-        }
-
-        .bunseki-landing-main-v3{
-            min-height:auto;
-            padding:.9rem 1rem;
-        }
-
-        .bunseki-landing-logo-v3{
-            width:min(
-                345px,
-                80%
-            )!important;
-            margin-bottom:.35rem!important;
-        }
-
-        .bunseki-landing-title-v3{
-            font-size:clamp(
-                1.65rem,
-                5.2vw,
-                2.1rem
-            );
-            line-height:1.08;
-            margin-bottom:.5rem;
-        }
-
-        .bunseki-landing-copy-v3{
-            font-size:.88rem;
-            line-height:1.45;
-        }
-
-        .bunseki-powered-v3{
-            margin-top:.55rem;
-        }
-
-        .bunseki-landing-side-v3{
-            padding:.82rem;
-        }
-    }
-
-    @media(max-width:520px){
-        .bunseki-landing-v3{
-            width:94vw;
-        }
-
-        .bunseki-landing-main-v3,
-        .bunseki-landing-side-v3{
-            border-radius:18px;
-        }
-
-        .bunseki-landing-logo-v3{
-            width:min(
-                315px,
-                92%
-            )!important;
-        }
-
-        .bunseki-landing-title-v3{
-            font-size:1.72rem;
-        }
-
-        .bunseki-landing-kicker-v3{
-            font-size:.65rem;
-        }
-
-        .bunseki-landing-copy-v3{
-            font-size:.84rem;
-        }
-    }
-    </style>
-    """
-
-    landing_html = (
-        '<main class="bunseki-landing-v3">'
-        '<section class="bunseki-landing-grid-v3">'
-
-        '<article class="bunseki-landing-main-v3">'
-
-        f'<img class="bunseki-landing-logo-v3" '
-        f'src="{BUNSEKI_FRONTEND_LOGO_DATA_URI}" '
-        'alt="BunsekiChat landing final">'
-
-        '<div class="bunseki-landing-kicker-v3">'
-        'Aprendizaje matemático personalizado'
-        '</div>'
-
-        '<div class="bunseki-landing-title-v3">'
-        'Comprende, practica y demuestra '
-        '<strong>tu progreso.</strong>'
-        '</div>'
-
-        '<p class="bunseki-landing-copy-v3">'
-        'BunsekiChat acompaña el aprendizaje universitario '
-        'con orientación, práctica adaptativa y evidencia '
-        'del proceso de aprendizaje. Cada interacción busca '
-        'ayudarte a comprender el razonamiento y avanzar '
-        'con mayor autonomía.'
-        '</p>'
-
-        '<div class="bunseki-powered-v3">'
-        '<span class="bunseki-powered-dot-v3"></span>'
-        '<span>'
-        'Powered by '
-        '<strong>Christian Tomalá V.</strong>'
-        ' · Docente - Investigador'
-        '</span>'
-        '</div>'
-
-        '</article>'
-
-        '<aside class="bunseki-landing-side-v3">'
-
-        '<div class="bunseki-side-eyebrow-v3">'
-        'Tu aprendizaje, con evidencia'
-        '</div>'
-
-        '<div class="bunseki-side-title-v3">'
-        'Un entorno para aprender haciendo.'
-        '</div>'
-
-        '<div class="bunseki-feature-v3">'
-        '<h3>💬 Aprende con acompañamiento</h3>'
-        '<p>'
-        'Consulta conceptos y procedimientos con '
-        'explicaciones orientadas a comprender.'
-        '</p>'
-        '</div>'
-
-        '<div class="bunseki-feature-v3">'
-        '<h3>🎯 Practica a tu nivel</h3>'
-        '<p>'
-        'Trabaja por tema y dificultad o utiliza '
-        'el modo recomendado.'
-        '</p>'
-        '</div>'
-
-        '<div class="bunseki-feature-v3">'
-        '<h3>📈 Conserva tu progreso</h3>'
-        '<p>'
-        'Mantén evidencia útil de tus prácticas '
-        'y avances de aprendizaje.'
-        '</p>'
-        '</div>'
-
-        '</aside>'
-        '</section>'
-        '</main>'
-    )
-
-    st.markdown(
-        landing_css,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        landing_html,
-        unsafe_allow_html=True,
-    )
-
-    button_left, button_right = (
-        st.columns(
-            [1.12, .88]
-        )
-    )
-
-    with button_left:
-
-        if st.button(
-            "Comenzar con BunsekiChat",
-            key="landing_start",
-            type="primary",
-            use_container_width=True,
-        ):
-            st.session_state[
-                "landing_entered"
-            ] = True
-
+    from bunseki.ui.landing import render_intro, render_cards
+    with st.container(key="bui_landing_surface"):
+        render_intro(st, BUNSEKI_FRONTEND_LOGO_DATA_URI)
+        if st.button("Comenzar con BunsekiChat", key="landing_start", type="primary", use_container_width=True):
+            st.session_state["landing_entered"] = True
             st.rerun()
-
-    st.markdown(
-        (
-            '<div class="bunseki-landing-bottom-v3">'
-            '<div class="bunseki-landing-note-v3">'
-            'Formación inteligente para un mundo en transformación'
-            ' · práctica, retroalimentación y trazabilidad '
-            'del aprendizaje.'
-            '</div>'
-            '</div>'
-        ),
-        unsafe_allow_html=True,
-    )
+        render_cards(st)
+        st.caption("BunsekiChat · Christian Tomalá")
 
 
 
 
 def login_page():
+    from bunseki.ui.login import render_login_intro
+    with st.container(key="bui_login_surface"):
+        render_login_intro(st, BUNSEKI_FRONTEND_LOGO_DATA_URI)
+        tab1, tab2 = st.tabs(["Ingresar", "Registrarse"])
 
-    # BUNSEKI_R8_21_7C_LOGIN_COMPACT
-    st.markdown(
-        """
-        <style>
-        body
-        [data-testid="stAppViewContainer"]
-        .main .block-container{
-            padding-top:.2rem!important;
-            padding-bottom:.2rem!important;
-        }
-
-        body
-        [data-testid="stAppViewContainer"]
-        div[data-testid="stHorizontalBlock"]:
-        has(.login-card-premium){
-            gap:0!important;
-            justify-content:center!important;
-            align-items:flex-start!important;
-        }
-
-        body
-        [data-testid="stAppViewContainer"]
-        div[data-testid="stColumn"]:
-        has(.ad-panel){
-            display:none!important;
-        }
-
-        body
-        [data-testid="stAppViewContainer"]
-        div[data-testid="stColumn"]:
-        has(.login-card-premium){
-            flex:0 1 520px!important;
-            width:min(520px,96vw)!important;
-            max-width:520px!important;
-        }
-
-        body
-        [data-testid="stAppViewContainer"]
-        .login-premium-page{
-            min-height:0!important;
-            height:auto!important;
-            padding:.1rem 0!important;
-            margin:0!important;
-        }
-
-        body
-        [data-testid="stAppViewContainer"]
-        .login-card-premium{
-            min-height:0!important;
-            height:auto!important;
-            width:min(500px,94vw)!important;
-            max-width:500px!important;
-            margin:.1rem auto .3rem!important;
-            padding:.5rem .75rem .6rem!important;
-        }
-
-        body
-        [data-testid="stAppViewContainer"]
-        .login-card-premium
-        div[data-testid="stVerticalBlock"]{
-            gap:.18rem!important;
-        }
-
-        body
-        [data-testid="stAppViewContainer"]
-        .login-card-premium img,
-        body
-        [data-testid="stAppViewContainer"]
-        .login-card-premium
-        .bunseki-brand-logo{
-            display:block!important;
-            width:min(325px,82vw)!important;
-            height:auto!important;
-            max-height:none!important;
-            margin:0 auto .2rem!important;
-            object-fit:contain!important;
-        }
-
-        body
-        [data-testid="stAppViewContainer"]
-        .login-card-premium
-        .logo-orb{
-            display:none!important;
-        }
-
-        body
-        [data-testid="stAppViewContainer"]
-        .login-card-premium
-        .login-title,
-        body
-        [data-testid="stAppViewContainer"]
-        .login-card-premium
-        .login-subtitle{
-            margin:.12rem auto!important;
-        }
-
-        body
-        [data-testid="stAppViewContainer"]
-        .login-card-premium
-        [data-baseweb="tab-list"]{
-            margin-top:.08rem!important;
-        }
-
-        body
-        [data-testid="stAppViewContainer"]
-        .login-note,
-        body
-        [data-testid="stAppViewContainer"]
-        .powered{
-            margin-top:.25rem!important;
-        }
-
-        @media(max-width:640px){
-            body
-            [data-testid="stAppViewContainer"]
-            .main .block-container{
-                padding-top:.05rem!important;
-            }
-
-            body
-            [data-testid="stAppViewContainer"]
-            .login-card-premium{
-                width:94vw!important;
-                padding:.42rem .58rem .5rem!important;
-            }
-
-            body
-            [data-testid="stAppViewContainer"]
-            .login-card-premium img,
-            body
-            [data-testid="stAppViewContainer"]
-            .login-card-premium
-            .bunseki-brand-logo{
-                width:min(290px,78vw)!important;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-    inject_bunseki_frontend_skin()
-    # BUNSEKI_LOGIN_LOGO_FINAL_CLOSE_V2
-    _bunseki_login_logo_html = (
-        '<div class="bunseki-login-logo-final-wrap">'
-        f'<img class="bunseki-login-logo-final" '
-        f'src="{BUNSEKI_FRONTEND_LOGO_DATA_URI}" '
-        'alt="BunsekiChat brand">'
-        '</div>'
-    )
-    st.markdown(
-        """<style>
-        .bunseki-login-logo-final-wrap{
-            width:100%;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            margin:.05rem auto .65rem;
-            padding:0;
-        }
-        img.bunseki-login-logo-final,
-        .login-card-premium img.bunseki-login-logo-final{
-            display:block!important;
-            visibility:visible!important;
-            opacity:1!important;
-            width:min(390px,90vw)!important;
-            max-width:100%!important;
-            height:auto!important;
-            object-fit:contain!important;
-            margin:0 auto!important;
-            padding:0!important;
-        }
-        .bunseki-login-classic-mark,
-        .bunseki-login-mark,
-        .login-card-premium .bunseki-login-mark,
-        .bunseki-login-name,
-        .login-card-premium .bunseki-login-name,
-        .login-card-premium .logo-orb{
-            display:none!important;
-        }
-        @media(max-width:640px){
-            img.bunseki-login-logo-final,
-            .login-card-premium img.bunseki-login-logo-final{
-                width:min(330px,92vw)!important;
-            }
-        }
-        </style>""",
-        unsafe_allow_html=True,
-    )
-    st.markdown(_bunseki_login_logo_html, unsafe_allow_html=True)
-
-
-    # BUNSEKI_LOGIN_VISUAL_FINAL_V2
-    st.markdown(
-        """<style>
-        .block-container{padding-top:.35rem!important}
-        .logo-orb,
-        .bunseki-brand-logo,
-        .login-logo,
-        img[alt="BunsekiChat"],
-        div[data-testid="stImage"]{
-            display:none!important
-        }
-        .bunseki-login-classic-mark{
-            width:62px;height:62px;
-            margin:.1rem auto .5rem;
-            border-radius:17px;
-            background:#2A1B4D;
-            color:#fff;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            font-size:1.42rem;
-            font-weight:900;
-            line-height:1;
-            letter-spacing:-.06em;
-            box-shadow:0 8px 22px rgba(42,27,77,.16)
-        }
-        .login-title{
-            display:block!important;
-            color:#E0177D!important;
-            font-size:1.72rem!important;
-            line-height:1.1!important;
-            font-weight:850!important;
-            margin:.05rem 0 .35rem!important;
-            text-align:center!important
-        }
-        .login-subtitle{
-            color:#655d78!important;
-            font-size:.93rem!important;
-            line-height:1.45!important;
-            max-width:25rem!important;
-            margin:0 auto .72rem!important;
-            text-align:center!important
-        }
-        @media(max-width:640px){
-            .bunseki-login-classic-mark{width:56px;height:56px;font-size:1.28rem}
-            .login-title{font-size:1.52rem!important}
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-    # BUNSEKI_LOGIN_CLASSIC_FINAL
-    st.markdown(
-        """
-        <style>
-        /* Login clásico: la marca horizontal nueva queda exclusivamente en la portada */
-        .login-card-premium img,
-        .login-card-premium .bunseki-brand-logo,
-        .login-card-premium .bunseki-brand-compact,
-        .login-card-premium .login-logo,
-        .login-card-premium [class*="wordmark"] {
-            display: none !important;
-        }
-
-        .login-card-premium .logo-orb {
-            display: none !important;
-        }
-
-        .login-card-premium {
-            width: min(500px, 94vw) !important;
-            max-width: 500px !important;
-            margin: .45rem auto .7rem !important;
-            padding: .95rem 1rem .9rem !important;
-            border-radius: 24px !important;
-        }
-
-        .login-card-premium .login-title {
-            display: block !important;
-            color: #E0177D !important;
-            font-size: 1.72rem !important;
-            line-height: 1.1 !important;
-            font-weight: 850 !important;
-            margin: 0 0 .35rem !important;
-            text-align: center !important;
-        }
-
-        .login-card-premium .login-title::before {
-            content: "BΣ";
-            width: 62px;
-            height: 62px;
-            margin: 0 auto .48rem;
-            border-radius: 17px;
-            background: #2A1B4D;
-            color: #ffffff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.42rem;
-            font-weight: 900;
-            line-height: 1;
-            letter-spacing: -.06em;
-            box-shadow: 0 8px 22px rgba(42,27,77,.16);
-        }
-
-        .login-card-premium .login-subtitle {
-            display: block !important;
-            color: #655d78 !important;
-            font-size: .93rem !important;
-            line-height: 1.45 !important;
-            max-width: 25rem !important;
-            margin: 0 auto .72rem !important;
-            text-align: center !important;
-        }
-
-        .login-card-premium [data-baseweb="tab-list"] {
-            margin-top: .15rem !important;
-        }
-
-        @media (max-width: 640px) {
-            .login-card-premium {
-                width: 94vw !important;
-                max-width: 94vw !important;
-                margin-top: .25rem !important;
-                padding: .78rem .78rem .8rem !important;
-            }
-
-            .login-card-premium .login-title {
-                font-size: 1.52rem !important;
-            }
-
-            .login-card-premium .login-title::before {
-                width: 56px;
-                height: 56px;
-                font-size: 1.28rem;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-
-        """
-
-        <style>
-
-        /* LOGIN BUNSEKICHAT · identidad analítica + conversación */
-
-        html, body, [class*="css"]{
-
-            font-family:"Poppins","Segoe UI",Arial,sans-serif !important;
-
-        }
-
-        .stApp{
-
-            background:
-
-                radial-gradient(circle at 15% 10%, rgba(224,23,125,.08), transparent 34%),
-
-                radial-gradient(circle at 88% 88%, rgba(255,200,87,.10), transparent 28%),
-
-                #f8f6fb !important;
-
-        }
-
-        .block-container{
-
-            width:min(92vw, 470px) !important;
-
-            max-width:470px !important;
-
-            margin:clamp(24px,7vh,72px) auto 28px !important;
-
-            padding:30px clamp(20px,5vw,34px) 24px !important;
-
-            background:#ffffff !important;
-
-            border:1px solid rgba(42,27,77,.16) !important;
-
-            border-radius:26px !important;
-
-            box-shadow:none !important;
-
-        }
-
-        header[data-testid="stHeader"]{
-
-            height:0 !important; min-height:0 !important;
-
-            pointer-events:none !important; background:transparent !important;
-
-        }
-
-        .bunseki-login-brand{ text-align:center; margin:0 0 18px; }
-
-        .bunseki-login-mark{
-
-            width:78px; height:78px; margin:0 auto 12px; display:block;
 
-        }
 
-        .bunseki-login-name{
+        with tab1:
 
-            color:#2A1B4D !important; font-size:2rem; line-height:1; font-weight:800;
+            u = st.text_input(
 
-            letter-spacing:-.04em; margin:0;
+                "Usuario",
 
-        }
+                key="lu",
 
-        .bunseki-login-name span{ color:#E0177D !important; }
+                placeholder="tu usuario o correo",
 
-        .bunseki-login-subtitle{
+            )
 
-            color:#625a72; font-size:.91rem; line-height:1.5; margin:10px auto 2px;
+            p = st.text_input(
 
-            max-width:340px;
+                "Contraseña",
 
-        }
+                type="password",
 
-        div[data-testid="stTabs"] [data-baseweb="tab-list"]{
+                key="lp",
 
-            gap:4px; border-bottom:1px solid #eee8f2;
+                placeholder="tu contraseña",
 
-        }
+            )
 
-        div[data-testid="stTabs"] button[role="tab"]{
+            if st.button("Ingresar", use_container_width=True, key="login_submit"):
 
-            color:#655c74 !important; font-weight:700 !important;
+                user = authenticate(u, p)
 
-            border-bottom:3px solid transparent !important;
+                if user:
 
-        }
+                    st.session_state.user = user
 
-        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"]{
+                    st.session_state.last_activity = datetime.now()
 
-            color:#E0177D !important; border-bottom-color:#E0177D !important;
+                    st.rerun()
 
-        }
+                else:
 
-        div[data-testid="stTabs"] [data-baseweb="tab-highlight"]{
+                    st.error("Credenciales inválidas o usuario inactivo.")
 
-            background:#E0177D !important;
 
-        }
 
-        .stTextInput label{ color:#2A1B4D !important; font-weight:700 !important; }
+        with tab2:
 
-        .stTextInput input{
+            u = st.text_input(
 
-            height:46px !important; min-height:46px !important;
+                "Nuevo usuario",
 
-            border-radius:12px !important; background:#fbfafc !important;
+                key="ru",
 
-            border:1px solid #d8d1df !important; color:#2A1B4D !important;
+                placeholder="elige un usuario",
 
-            padding:0 14px !important;
+            )
 
-        }
+            p = st.text_input(
 
-        .stTextInput input:focus{
+                "Nueva contraseña",
 
-            border-color:#E0177D !important;
+                type="password",
 
-            box-shadow:0 0 0 3px rgba(224,23,125,.12) !important;
+                key="rp",
 
-        }
+                placeholder="mínimo 6 caracteres",
 
-        .stButton > button{
+            )
 
-            height:44px !important; min-height:44px !important; border-radius:12px !important;
+            if st.button("Crear cuenta", use_container_width=True, key="register_submit"):
 
-            background:#E0177D !important; color:#fff !important; border:0 !important;
+                if len(u) < 4 or len(p) < 6:
 
-            font-weight:800 !important; box-shadow:none !important;
+                    st.warning("El usuario requiere 4 caracteres y la contraseña al menos 6.")
 
-        }
+                elif user_by_username(u):
 
-        .stButton > button:hover{ background:#c81370 !important; }
+                    st.warning("Ese usuario ya existe.")
 
-        .bunseki-login-help{
+                else:
 
-            color:#746c80; text-align:center; font-size:.78rem; line-height:1.45;
+                    create_user(u, p)
 
-            margin:15px 0 0;
+                    st.success("Cuenta creada. Ya puedes ingresar.")
 
-        }
 
-        .bunseki-login-signature{
 
-            color:#8a8293; text-align:center; font-size:.72rem; margin-top:8px;
-
-        }
-
-        @media(max-width:560px){
-
-            .block-container{
-
-                width:calc(100vw - 24px) !important; margin:12px auto !important;
-
-                padding:24px 18px 20px !important; border-radius:20px !important;
-
-            }
-
-            .bunseki-login-name{font-size:1.72rem;}
-
-            .bunseki-login-mark{width:68px;height:68px;}
-
-        }
-
-
-        .bunseki-login-wordmark-dark{
-            color:#2A1B4D !important;
-        }
-
-        .bunseki-login-wordmark-accent{
-            color:#E0177D !important;
-        }
-
-        </style>
-
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # Runtime-safe login brand:
-    # use the certified frontend logo as IMG instead of inline indented SVG.
-    st.caption("Aprendizaje adaptativo con trazabilidad académica.")
-
-
-
-    tab1, tab2 = st.tabs(["Ingresar", "Registrarse"])
-
-
-
-    with tab1:
-
-        u = st.text_input(
-
-            "Usuario",
-
-            key="lu",
-
-            placeholder="tu usuario o correo",
-
-        )
-
-        p = st.text_input(
-
-            "Contraseña",
-
-            type="password",
-
-            key="lp",
-
-            placeholder="tu contraseña",
-
-        )
-
-        if st.button("Ingresar", use_container_width=True, key="login_submit"):
-
-            user = authenticate(u, p)
-
-            if user:
-
-                st.session_state.user = user
-
-                st.session_state.last_activity = datetime.now()
-
-                st.rerun()
-
-            else:
-
-                st.error("Credenciales inválidas o usuario inactivo.")
-
-
-
-    with tab2:
-
-        u = st.text_input(
-
-            "Nuevo usuario",
-
-            key="ru",
-
-            placeholder="elige un usuario",
-
-        )
-
-        p = st.text_input(
-
-            "Nueva contraseña",
-
-            type="password",
-
-            key="rp",
-
-            placeholder="mínimo 6 caracteres",
-
-        )
-
-        if st.button("Crear cuenta", use_container_width=True, key="register_submit"):
-
-            if len(u) < 4 or len(p) < 6:
-
-                st.warning("El usuario requiere 4 caracteres y la contraseña al menos 6.")
-
-            elif user_by_username(u):
-
-                st.warning("Ese usuario ya existe.")
-
-            else:
-
-                create_user(u, p)
-
-                st.success("Cuenta creada. Ya puedes ingresar.")
-
-
-
-    st.caption("Acceso académico seguro · Tus avances se conservan en tu cuenta.")
-    st.caption("BunsekiChat · Christian Tomalá")
+        st.caption("Acceso académico seguro · Tus avances se conservan en tu cuenta.")
+        st.caption("BunsekiChat · Christian Tomalá")
 
 
 
@@ -18117,19 +17187,14 @@ def student_page(user):
 
     academic_context = academic_context_from_profile(prof)
 
-    hero_html = (
-
-        "<div class='hero'>"
-
-        + bunseki_logo_html(APP_NAME, 'Bienvenido/a, ' + str(prof.get('first_names') or '') + ' · ' + academic_context.get('subject','Matemáticas universitarias'))
-
-        + f"<div style='margin-top:12px'><span class='badge'>Nivel: {prof.get('level','Inicial')}</span> <span class='badge'>{academic_context.get('cohort','Sin curso')}</span></div>"
-
-        + "</div>"
-
+    from bunseki.ui.student_dashboard import render_student_header
+    render_student_header(
+        st, BUNSEKI_FRONTEND_LOGO_DATA_URI,
+        str(prof.get('first_names') or ''),
+        academic_context.get('subject', 'Matemáticas universitarias'),
+        prof.get('level', 'Inicial'),
+        academic_context.get('cohort', 'Sin curso'),
     )
-
-    st.markdown(hero_html, unsafe_allow_html=True)
 
 
 
@@ -18336,946 +17401,198 @@ def student_page(user):
 
     with right:
 
-        st.markdown(
+        render_student_adaptive_practice(user, prof, topic, subtopic, page, user_q)
 
-            "<div class='card'><h3>🎯 Configura tu práctica</h3>"
 
-            "<p class='small'>Elige el área que quieres reforzar. En <b>Recomendado</b>, BunsekiChat ajusta la dificultad según tu desempeño; también puedes escoger un nivel manualmente.</p></div>",
+def render_student_adaptive_practice(user, prof, topic, subtopic, page, user_q):
+    st.markdown(
 
-            unsafe_allow_html=True,
+        "<div class='card'><h3>🎯 Configura tu práctica</h3>"
 
+        "<p class='small'>Elige el área que quieres reforzar. En <b>Recomendado</b>, BunsekiChat ajusta la dificultad según tu desempeño; también puedes escoger un nivel manualmente.</p></div>",
+
+        unsafe_allow_html=True,
+
+    )
+
+
+
+    practice_topics = list(TOPICS.keys())
+
+    _adaptive_practice_hydrate_session(user)
+
+    default_practice_topic = topic if topic in practice_topics else practice_topics[0]
+
+    topic_state_key = f"adaptive_practice_topic_{user['id']}"
+
+    # BUNSEKI_R8_21_4B_DURABLE_SELECTOR_STATE
+    topic_value_key = f"adaptive_practice_topic_value_{user['id']}"
+    persisted_topic = st.session_state.get(topic_value_key)
+    if (
+        st.session_state.get(topic_state_key) not in practice_topics
+        and persisted_topic in practice_topics
+    ):
+        st.session_state[topic_state_key] = persisted_topic
+
+    if st.session_state.get(topic_state_key) not in practice_topics:
+
+        st.session_state[topic_state_key] = default_practice_topic
+
+    practice_topic = st.selectbox(
+
+        "Tema para práctica libre",
+
+        practice_topics,
+
+        key=topic_state_key,
+
+        help="Puedes cambiar el área de práctica sin modificar tu materia, pretest o nivel oficial.",
+
+    )
+
+    st.session_state[topic_value_key] = practice_topic
+
+    practice_subtopics = list(TOPICS.get(practice_topic, []))
+    if not practice_subtopics:
+        practice_subtopics = [practice_topic]
+
+    default_practice_subtopic = (
+        subtopic
+        if subtopic in practice_subtopics
+        else practice_subtopics[0]
+    )
+
+    subtopic_state_key = (
+        f"adaptive_practice_subtopic_{user['id']}_"
+        f"{strip_accents(practice_topic).lower()}"
+    )
+
+    subtopic_value_key = (
+        f"adaptive_practice_subtopic_value_{user['id']}_"
+        f"{strip_accents(practice_topic).lower()}"
+    )
+    persisted_subtopic = st.session_state.get(subtopic_value_key)
+    if (
+        st.session_state.get(subtopic_state_key) not in practice_subtopics
+        and persisted_subtopic in practice_subtopics
+    ):
+        st.session_state[subtopic_state_key] = persisted_subtopic
+
+    if st.session_state.get(subtopic_state_key) not in practice_subtopics:
+        st.session_state[subtopic_state_key] = default_practice_subtopic
+
+    practice_subtopic = st.selectbox(
+        "Subtema para práctica libre",
+        practice_subtopics,
+        key=subtopic_state_key,
+        help=(
+            "El subtema permite focalizar la práctica. "
+            "En Matemáticas básicas puedes elegir Álgebra elemental, "
+            "Trigonometría o Geometría analítica."
+        ),
+    )
+    active_mbada_methodology = None
+    available_mbada_methodologies = (
+        get_student_approved_mbada_methodologies(
+            prof
         )
+    )
 
-
-
-        practice_topics = list(TOPICS.keys())
-
-        _adaptive_practice_hydrate_session(user)
-
-        default_practice_topic = topic if topic in practice_topics else practice_topics[0]
-
-        topic_state_key = f"adaptive_practice_topic_{user['id']}"
-
-        # BUNSEKI_R8_21_4B_DURABLE_SELECTOR_STATE
-        topic_value_key = f"adaptive_practice_topic_value_{user['id']}"
-        persisted_topic = st.session_state.get(topic_value_key)
-        if (
-            st.session_state.get(topic_state_key) not in practice_topics
-            and persisted_topic in practice_topics
-        ):
-            st.session_state[topic_state_key] = persisted_topic
-
-        if st.session_state.get(topic_state_key) not in practice_topics:
-
-            st.session_state[topic_state_key] = default_practice_topic
-
-        practice_topic = st.selectbox(
-
-            "Tema para práctica libre",
-
-            practice_topics,
-
-            key=topic_state_key,
-
-            help="Puedes cambiar el área de práctica sin modificar tu materia, pretest o nivel oficial.",
-
-        )
-
-        st.session_state[topic_value_key] = practice_topic
-
-        practice_subtopics = list(TOPICS.get(practice_topic, []))
-        if not practice_subtopics:
-            practice_subtopics = [practice_topic]
-
-        default_practice_subtopic = (
-            subtopic
-            if subtopic in practice_subtopics
-            else practice_subtopics[0]
-        )
-
-        subtopic_state_key = (
-            f"adaptive_practice_subtopic_{user['id']}_"
-            f"{strip_accents(practice_topic).lower()}"
-        )
-
-        subtopic_value_key = (
-            f"adaptive_practice_subtopic_value_{user['id']}_"
-            f"{strip_accents(practice_topic).lower()}"
-        )
-        persisted_subtopic = st.session_state.get(subtopic_value_key)
-        if (
-            st.session_state.get(subtopic_state_key) not in practice_subtopics
-            and persisted_subtopic in practice_subtopics
-        ):
-            st.session_state[subtopic_state_key] = persisted_subtopic
-
-        if st.session_state.get(subtopic_state_key) not in practice_subtopics:
-            st.session_state[subtopic_state_key] = default_practice_subtopic
-
-        practice_subtopic = st.selectbox(
-            "Subtema para práctica libre",
-            practice_subtopics,
-            key=subtopic_state_key,
+    if available_mbada_methodologies:
+        use_mbada_route = st.checkbox(
+            "Usar ruta de dominio MBADA aprobada",
+            value=True,
+            key=f"student_mbada_route_enabled_{user['id']}",
             help=(
-                "El subtema permite focalizar la práctica. "
-                "En Matemáticas básicas puedes elegir Álgebra elemental, "
-                "Trigonometría o Geometría analítica."
+                "MBADA significa Metodología Bunseki de "
+                "Aprendizaje por Dominio Adaptativo."
             ),
         )
-        active_mbada_methodology = None
-        available_mbada_methodologies = (
-            get_student_approved_mbada_methodologies(
-                prof
-            )
-        )
 
-        if available_mbada_methodologies:
-            use_mbada_route = st.checkbox(
-                "Usar ruta de dominio MBADA aprobada",
-                value=True,
-                key=f"student_mbada_route_enabled_{user['id']}",
-                help=(
-                    "MBADA significa Metodología Bunseki de "
-                    "Aprendizaje por Dominio Adaptativo."
-                ),
-            )
-
-            if use_mbada_route:
-                mbada_ids = [
-                    int(item["id"])
-                    for item in available_mbada_methodologies
-                ]
-                mbada_map = {
-                    int(item["id"]): item
-                    for item in available_mbada_methodologies
-                }
-
-                selected_mbada_id = st.selectbox(
-                    "Ruta MBADA aprobada",
-                    mbada_ids,
-                    format_func=lambda value: (
-                        f"{mbada_map[value].get('unit_name') or 'Unidad'} · "
-                        f"{mbada_map[value].get('topic') or 'Tema'} · "
-                        f"{mbada_map[value].get('subtopic') or 'Subtema'}"
-                    ),
-                    key=f"student_mbada_route_{user['id']}",
-                )
-
-                active_mbada_methodology = (
-                    mbada_map[
-                        int(selected_mbada_id)
-                    ]
-                )
-
-                practice_topic = (
-                    active_mbada_methodology.get("topic")
-                    or practice_topic
-                )
-                practice_subtopic = (
-                    active_mbada_methodology.get("subtopic")
-                    or practice_subtopic
-                )
-
-                st.info(
-                    f"Ruta MBADA activa: {practice_topic} → {practice_subtopic}. "
-                    "Los selectores de práctica libre anteriores no cambian "
-                    "esta ruta aprobada."
-                )
-
-                current_mbada_mastery = (
-                    get_student_topic_mastery(
-                        user["id"],
-                        active_mbada_methodology[
-                            "plan_topic_id"
-                        ],
-                        active_mbada_methodology[
-                            "id"
-                        ],
-                    )
-                )
-
-                mastery_threshold = float(
-                    active_mbada_methodology.get(
-                        "mastery_threshold"
-                    )
-                    or 80
-                )
-
-                st.caption(
-                    "MBADA significa Metodología Bunseki de "
-                    "Aprendizaje por Dominio Adaptativo. "
-                    f"Esta ruta usa el tema curricular aprobado y "
-                    f"un umbral de dominio de {mastery_threshold:.0f}%."
-                )
-
-                st.caption(
-                    "Resultado de aprendizaje: "
-                    + str(
-                        active_mbada_methodology.get(
-                            "learning_outcome"
-                        )
-                        or "—"
-                    )
-                )
-
-                if current_mbada_mastery:
-                    current_score = float(
-                        current_mbada_mastery.get(
-                            "mastery_score"
-                        )
-                        or 0
-                    )
-
-                    st.progress(
-                        max(
-                            0,
-                            min(
-                                100,
-                                int(round(current_score)),
-                            ),
-                        ),
-                        text=(
-                            f"Dominio acumulado: "
-                            f"{current_score:.0f}% · "
-                            f"Estado: "
-                            f"{current_mbada_mastery.get('mastery_state')}"
-                        ),
-                    )
-
-        st.session_state[subtopic_value_key] = practice_subtopic
-
-        subtopic = practice_subtopic
-
-
-
-        level_choices = ["Recomendado", *ADAPTIVE_DIFFICULTIES]
-
-        level_state_key = (
-            f"adaptive_practice_level_choice_{user['id']}_"
-            f"{strip_accents(practice_topic).lower()}_"
-            f"{strip_accents(practice_subtopic).lower()}"
-        )
-
-        level_value_key = (
-            f"adaptive_practice_level_value_{user['id']}_"
-            f"{strip_accents(practice_topic).lower()}_"
-            f"{strip_accents(practice_subtopic).lower()}"
-        )
-        if active_mbada_methodology:
-            st.session_state[level_state_key] = "Recomendado"
-            st.session_state[level_value_key] = "Recomendado"
-        persisted_level = st.session_state.get(level_value_key)
-        if (
-            st.session_state.get(level_state_key) not in level_choices
-            and persisted_level in level_choices
-        ):
-            st.session_state[level_state_key] = persisted_level
-
-        if st.session_state.get(level_state_key) not in level_choices:
-
-            st.session_state[level_state_key] = "Recomendado"
-
-        practice_level_choice = st.selectbox(
-
-            "Nivel de práctica",
-
-            level_choices,
-
-            key=level_state_key,
-
-            disabled=bool(active_mbada_methodology),
-            help="Recomendado parte de tu nivel actual y se ajusta con tus resultados. Los otros niveles permiten práctica libre.",
-
-                                            format_func=lambda value: PRACTICE_LEVEL_LABELS.get(value, value),
-)
-        if active_mbada_methodology:
-            practice_level_choice = "Recomendado"
-            st.caption(
-                "Ruta MBADA activa: la dificultad se ajusta automáticamente "
-                "según tu desempeño y el umbral de dominio aprobado."
-            )
-
-        st.session_state[level_value_key] = practice_level_choice
-        st.caption(PRACTICE_LEVEL_HELP.get(practice_level_choice, ""))
-
-
-
-        practice_key = (
-            f"adaptive_practice_state_{user['id']}_"
-            f"{strip_accents(practice_topic).lower()}_"
-            f"{strip_accents(practice_subtopic).lower()}"
-        )
-
-        if practice_key not in st.session_state:
-
-            profile_level = prof.get("level") if prof.get("level") in ADAPTIVE_DIFFICULTIES else "Básico"
-
-            st.session_state[practice_key] = {
-
-                "round": 1,
-
-                "difficulty": normalize_adaptive_difficulty(profile_level),
-
-                "result": None,
-
-                "selection_signature": None,
-
+        if use_mbada_route:
+            mbada_ids = [
+                int(item["id"])
+                for item in available_mbada_methodologies
+            ]
+            mbada_map = {
+                int(item["id"]): item
+                for item in available_mbada_methodologies
             }
 
-
-
-        practice_state = st.session_state[practice_key]
-
-        selection_signature = f"{practice_topic}|{practice_subtopic}|{practice_level_choice}"
-
-        if practice_state.get("selection_signature") != selection_signature:
-
-            practice_state["round"] = 1
-
-            practice_state["result"] = None
-            practice_state["items"] = []
-            practice_state["items_signature"] = None
-
-            practice_state["selection_signature"] = selection_signature
-
-            if practice_level_choice != "Recomendado":
-
-                practice_state["difficulty"] = normalize_adaptive_difficulty(practice_level_choice)
-
-            else:
-
-                profile_level = prof.get("level") if prof.get("level") in ADAPTIVE_DIFFICULTIES else "Básico"
-
-                practice_state["difficulty"] = normalize_adaptive_difficulty(profile_level)
-
-            st.session_state[practice_key] = practice_state
-
-
-
-        # R8.22E5: reconcile stale persisted practice metadata with MBADA mastery.
-        if active_mbada_methodology and current_mbada_mastery:
-            completed_mbada_rounds = int(
-                current_mbada_mastery.get("retrieval_count") or 0
-            )
-            active_state_round = max(
-                1,
-                int(practice_state.get("round") or 1),
-            )
-
-            stale_completed_round = (
-                completed_mbada_rounds >= active_state_round
-                and practice_state.get("result") is None
-            )
-
-            if stale_completed_round:
-                latest_route_difficulty = (
-                    get_student_latest_route_practice_difficulty(
-                        user["id"],
-                        practice_topic,
-                        practice_subtopic,
-                    )
-                )
-
-                base_difficulty = (
-                    latest_route_difficulty
-                    or normalize_adaptive_difficulty(
-                        practice_state.get("difficulty")
-                        or profile_level
-                        or "Básico"
-                    )
-                )
-
-                cumulative_mastery_score = float(
-                    current_mbada_mastery.get("mastery_score") or 0
-                )
-
-                reconciled_difficulty, _ = (
-                    adaptive_practice_next_difficulty(
-                        base_difficulty,
-                        cumulative_mastery_score,
-                        100,
-                    )
-                )
-
-                practice_state["round"] = completed_mbada_rounds + 1
-                practice_state["difficulty"] = reconciled_difficulty
-                practice_state["result"] = None
-                practice_state["items"] = []
-                practice_state["items_signature"] = None
-                practice_state["selection_signature"] = selection_signature
-                st.session_state[practice_key] = practice_state
-
-                st.caption(
-                    "Continuidad MBADA reconciliada: "
-                    f"se inicia la ronda {completed_mbada_rounds + 1} "
-                    f"en nivel {reconciled_difficulty}."
-                )
-
-        if practice_level_choice == "Recomendado":
-
-            practice_difficulty = normalize_adaptive_difficulty(practice_state.get("difficulty") or "Básico")
-
-            practice_mode_label = "Adaptativo automático"
-
-        else:
-
-            practice_difficulty = normalize_adaptive_difficulty(practice_level_choice)
-
-            practice_state["difficulty"] = practice_difficulty
-
-            st.session_state[practice_key] = practice_state
-
-            practice_mode_label = "Nivel elegido por el estudiante"
-
-
-
-        practice_round = int(practice_state.get("round") or 1)
-
-        try:
-                        # BUNSEKI_R8_21_3_ACTIVE_PRACTICE_PERSISTENCE
-            practice_items_signature = (
-                f"{practice_topic}|{practice_subtopic}|"
-                f"{practice_difficulty}|{practice_round}"
-            )
-            cached_practice_items = practice_state.get("items") or []
-            cached_items_signature = practice_state.get("items_signature")
-            if cached_practice_items and cached_items_signature == practice_items_signature:
-                practice_items = cached_practice_items
-            else:
-                practice_items = adaptive_practice_questions(
-                                user["id"],
-                                practice_topic,
-                                practice_difficulty,
-                                n_questions=5,
-                                round_no=practice_round,
-                                current_subtopic=practice_subtopic,
-                            )
-                practice_state["items"] = practice_items
-                practice_state["items_signature"] = practice_items_signature
-
-                _adaptive_practice_persist_active(
-                    user["id"],
-                    practice_topic,
-                    practice_subtopic,
-                    practice_level_choice,
-                    practice_difficulty,
-                    practice_state,
-                )
-        except Exception as practice_generation_error:
-            st.error(
-                "No se pudo preparar una práctica verificada para "
-                f"{practice_topic} → {practice_subtopic}: "
-                f"{practice_generation_error}"
-            )
-            st.stop()
-
-
-
-        st.markdown(
-
-            "<div class='quiz-card-premium'><h3>🎯 Práctica adaptativa</h3>"
-
-            "<p class='small'>5 preguntas para entrenarte antes de una evaluación. No genera nota, no altera el pretest/posttest y no cambia tu nivel oficial.</p>"
-
-            f"<span class='quiz-topic-chip'>Tema: {practice_topic}</span>"
-              f"<span class='quiz-topic-chip'>Subtema: {practice_subtopic}</span>"
-
-            f"<span class='quiz-topic-chip'>Nivel: {practice_difficulty}</span>"
-
-            f"<span class='quiz-topic-chip'>Modo: {practice_mode_label}</span></div>",
-
-            unsafe_allow_html=True,
-
-        )
-
-
-
-        practice_attempt_id = (
-            st.session_state.get(
-                f"adaptive_practice_attempt_id_{user['id']}"
-            )
-        )
-
-        if not practice_attempt_id:
-            restored_active = (
-                _adaptive_practice_restore_active(
-                    user["id"]
-                )
-            )
-
-            if restored_active:
-                practice_attempt_id = (
-                    restored_active.get(
-                        "attempt_id"
-                    )
-                )
-
-                if practice_attempt_id:
-                    st.session_state[
-                        (
-                            "adaptive_practice_"
-                            f"attempt_id_{user['id']}"
-                        )
-                    ] = int(
-                        practice_attempt_id
-                    )
-
-        practice_batch_key = (
-            _adaptive_practice_batch_key(
-                user["id"],
-                practice_topic,
-                practice_subtopic,
-                practice_difficulty,
-                practice_round,
-            )
-        )
-
-        practice_saved_answers = (
-            _adaptive_practice_load_saved_answers(
-                user["id"],
-                practice_attempt_id,
-            )
-        )
-
-        practice_answers = {}
-
-        recovered_answer_count = 0
-
-        autosave_error_key = (
-            "adaptive_practice_"
-            f"autosave_error_{user['id']}"
-        )
-
-        autosave_error = (
-            st.session_state.get(
-                autosave_error_key
-            )
-        )
-
-        if autosave_error:
-            st.warning(
-                "La última respuesta no pudo "
-                "guardarse automáticamente. "
-                "Puedes volver a seleccionarla."
-            )
-
-        for i, item in enumerate(
-            practice_items,
-            start=1,
-        ):
-            options = (
-                item.get("options")
-                or []
-            )
-
-            question_key = (
-                _adaptive_practice_answer_question_key(
-                    item,
-                    practice_batch_key,
-                )
-            )
-
-            widget_key = (
-                _adaptive_practice_answer_widget_key(
-                    user["id"],
-                    practice_round,
-                    item,
-                    practice_batch_key,
-                )
-            )
-
-            saved_row = (
-                practice_saved_answers.get(
-                    question_key
-                )
-            )
-
-            if (
-                widget_key
-                not in st.session_state
-                and saved_row
-            ):
-                payload = (
-                    saved_row.get(
-                        "answer_json"
-                    )
-                    or {}
-                )
-
-                if isinstance(
-                    payload,
-                    dict,
-                ):
-                    saved_value = (
-                        payload.get(
-                            "value"
-                        )
-                    )
-
-                    if saved_value in options:
-                        st.session_state[
-                            widget_key
-                        ] = saved_value
-
-                        recovered_answer_count += 1
-
-            practice_answers[
-                str(i)
-            ] = st.radio(
-                (
-                    f"{i}. "
-                    f"[{item.get('bloom_level') or 'Comprender'}] "
-                    f"{item.get('question')}"
+            selected_mbada_id = st.selectbox(
+                "Ruta MBADA aprobada",
+                mbada_ids,
+                format_func=lambda value: (
+                    f"{mbada_map[value].get('unit_name') or 'Unidad'} · "
+                    f"{mbada_map[value].get('topic') or 'Tema'} · "
+                    f"{mbada_map[value].get('subtopic') or 'Subtema'}"
                 ),
-                options,
-                index=None,
-                key=widget_key,
-                on_change=(
-                    _adaptive_practice_autosave_answer
-                ),
-                args=(
-                    user["id"],
-                    practice_attempt_id,
-                    item,
-                    i,
-                    widget_key,
-                    practice_batch_key,
-                ),
+                key=f"student_mbada_route_{user['id']}",
             )
 
-        if recovered_answer_count:
+            active_mbada_methodology = (
+                mbada_map[
+                    int(selected_mbada_id)
+                ]
+            )
+
+            practice_topic = (
+                active_mbada_methodology.get("topic")
+                or practice_topic
+            )
+            practice_subtopic = (
+                active_mbada_methodology.get("subtopic")
+                or practice_subtopic
+            )
+
+            st.info(
+                f"Ruta MBADA activa: {practice_topic} → {practice_subtopic}. "
+                "Los selectores de práctica libre anteriores no cambian "
+                "esta ruta aprobada."
+            )
+
+            current_mbada_mastery = (
+                get_student_topic_mastery(
+                    user["id"],
+                    active_mbada_methodology[
+                        "plan_topic_id"
+                    ],
+                    active_mbada_methodology[
+                        "id"
+                    ],
+                )
+            )
+
+            mastery_threshold = float(
+                active_mbada_methodology.get(
+                    "mastery_threshold"
+                )
+                or 80
+            )
+
             st.caption(
-                "Progreso recuperado: "
-                f"{recovered_answer_count}/"
-                f"{len(practice_items)} "
-                "respuestas guardadas."
+                "MBADA significa Metodología Bunseki de "
+                "Aprendizaje por Dominio Adaptativo. "
+                f"Esta ruta usa el tema curricular aprobado y "
+                f"un umbral de dominio de {mastery_threshold:.0f}%."
             )
 
-        elif any(
-            value is not None
-            for value in practice_answers.values()
-        ):
             st.caption(
-                "Guardado automático activo."
-            )
-
-        practice_submit = st.button(
-            "Revisar práctica",
-            key=(
-                "adaptive_practice_submit_"
-                f"{user['id']}_"
-                f"{practice_round}_"
-                f"{practice_difficulty}"
-            ),
-            use_container_width=True,
-        )
-
-
-
-
-        if practice_submit:
-
-            unanswered = [key for key, value in practice_answers.items() if value is None]
-
-            if unanswered:
-
-                st.warning("Responde las 5 preguntas para recibir una ruta de práctica adaptada.")
-
-            else:
-
-                # R8.22E7: visible review progress and scoped runtime timings.
-                import time as _mbada_review_time
-                _mbada_review_started = _mbada_review_time.perf_counter()
-                st.info("Revisando respuestas y actualizando el dominio…")
-                _mbada_bank_seconds = 0.0
-
-                reviewed = []
-
-                correct_count = 0
-
-                weak_topics = []
-                bank_review_records = []
-
-                for i, item in enumerate(practice_items, start=1):
-
-                    answer = practice_answers[str(i)]
-
-                    ok = str(answer).strip() == str(item.get("correct_answer") or "").strip()
-
-                    correct_count += int(ok)
-
-                    if not ok:
-
-                        weak_topics.append(item.get("topic") or topic)
-
-                    reviewed.append({
-
-                        "question": item.get("question"),
-
-                        "answer": answer,
-
-                        "correct_answer": item.get("correct_answer"),
-
-                        "explanation": item.get("explanation"),
-
-                        "topic": item.get("topic") or practice_topic,
-                        "subtopic": item.get("subtopic") or practice_subtopic,
-
-                        "is_correct": ok,
-
-                    })
-                    bank_review_records.append({
-                        "uid": user["id"], "item": item, "answer": answer,
-                        "is_correct": ok, "topic": practice_topic,
-                        "subtopic": practice_subtopic, "difficulty": practice_difficulty,
-                        "attempt_key": (
-                            f"ai_practice|{user['id']}|{practice_topic}|{practice_subtopic}|"
-                            f"{practice_difficulty}|{practice_round}|{item.get('item_code') or stable_item_code(item.get('question', ''))}"
-                        ),
-                    })
-
-                _mbada_bank_start = _mbada_review_time.perf_counter()
-                record_ai_practice_bank_results_batch(bank_review_records)
-                _mbada_bank_seconds = _mbada_review_time.perf_counter() - _mbada_bank_start
-                _mbada_after_bank = _mbada_review_time.perf_counter()
-                next_difficulty, reason = adaptive_practice_next_difficulty(
-
-                    practice_difficulty,
-
-                    correct_count,
-
-                    len(practice_items),
-
-                )
-                # R8.22E9: after reaching Advanced in MBADA, a weak round
-                # triggers more Advanced consolidation instead of demotion.
-                if (
-                    active_mbada_methodology
-                    and practice_difficulty == "Avanzado"
-                    and next_difficulty != "Avanzado"
-                ):
-                    next_difficulty = "Avanzado"
-                    reason = (
-                        "Consolidaremos este nivel con nuevos problemas y "
-                        "retroalimentación antes de avanzar."
+                "Resultado de aprendizaje: "
+                + str(
+                    active_mbada_methodology.get(
+                        "learning_outcome"
                     )
-
-                practice_state["result"] = {
-
-                    "correct": correct_count,
-
-                    "total": len(practice_items),
-
-                    "reviewed": reviewed,
-
-                    "weak_topics": list(dict.fromkeys(weak_topics)),
-
-                    "next_difficulty": next_difficulty,
-
-                    "reason": reason,
-
-                }
-                if active_mbada_methodology:
-                    mbada_record_key = (
-                        f"{active_mbada_methodology['id']}|"
-                        f"{practice_round}|"
-                        f"{practice_topic}|"
-                        f"{practice_subtopic}|"
-                        f"{practice_difficulty}"
-                    )
-
-                    mbada_recorded_keys = set(
-                        str(value)
-                        for value in (
-                            practice_state.get(
-                                "mbada_recorded_keys"
-                            )
-                            or []
-                        )
-                    )
-
-                    try:
-                        if mbada_record_key not in mbada_recorded_keys:
-                            mbada_mastery = (
-                                record_student_mbada_practice_result(
-                                    user["id"],
-                                    active_mbada_methodology,
-                                    correct_count,
-                                    len(practice_items),
-                                    practice_round,
-                                )
-                            )
-
-                            mbada_recorded_keys.add(
-                                mbada_record_key
-                            )
-
-                            practice_state[
-                                "mbada_recorded_keys"
-                            ] = sorted(
-                                mbada_recorded_keys
-                            )
-                        else:
-                            mbada_mastery = (
-                                get_student_topic_mastery(
-                                    user["id"],
-                                    active_mbada_methodology[
-                                        "plan_topic_id"
-                                    ],
-                                    active_mbada_methodology[
-                                        "id"
-                                    ],
-                                )
-                            )
-
-                            if mbada_mastery:
-                                mbada_mastery = dict(
-                                    mbada_mastery
-                                )
-                                mbada_mastery[
-                                    "mastery_threshold"
-                                ] = float(
-                                    active_mbada_methodology.get(
-                                        "mastery_threshold"
-                                    )
-                                    or 80
-                                )
-
-                        if mbada_mastery:
-                            practice_state["result"][
-                                "mbada_mastery"
-                            ] = {
-                                "id": mbada_mastery.get("id"),
-                                "methodology_id": (
-                                    active_mbada_methodology[
-                                        "id"
-                                    ]
-                                ),
-                                "plan_topic_id": (
-                                    active_mbada_methodology[
-                                        "plan_topic_id"
-                                    ]
-                                ),
-                                "mastery_state": (
-                                    mbada_mastery.get(
-                                        "mastery_state"
-                                    )
-                                ),
-                                "mastery_score": float(
-                                    mbada_mastery.get(
-                                        "mastery_score"
-                                    )
-                                    or 0
-                                ),
-                                "mastery_threshold": float(
-                                    mbada_mastery.get(
-                                        "mastery_threshold"
-                                    )
-                                    or active_mbada_methodology.get(
-                                        "mastery_threshold"
-                                    )
-                                    or 80
-                                ),
-                                "attempts_count": int(
-                                    mbada_mastery.get(
-                                        "attempts_count"
-                                    )
-                                    or 0
-                                ),
-                                "correct_count": int(
-                                    mbada_mastery.get(
-                                        "correct_count"
-                                    )
-                                    or 0
-                                ),
-                            }
-
-                    except Exception as mbada_mastery_error:
-                        st.error(
-                            "La práctica fue revisada, pero no se pudo "
-                            "actualizar el registro de dominio MBADA. "
-                            f"Detalle: {mbada_mastery_error}"
-                        )
-
-                _mbada_after_mastery = _mbada_review_time.perf_counter()
-                st.session_state[practice_key] = practice_state
-
-                _adaptive_practice_persist_active(
-                    user["id"],
-                    practice_topic,
-                    practice_subtopic,
-                    practice_level_choice,
-                    practice_difficulty,
-                    practice_state,
-                )
-
-                _mbada_after_persist = _mbada_review_time.perf_counter()
-                print(
-                    "MBADA_REVIEW_TIMING "
-                    f"uid={user['id']} round={practice_round} "
-                    f"bank_s={_mbada_bank_seconds:.3f} "
-                    f"loop_s={_mbada_after_bank - _mbada_review_started:.3f} "
-                    f"mastery_s={_mbada_after_mastery - _mbada_after_bank:.3f} "
-                    f"persist_s={_mbada_after_persist - _mbada_after_mastery:.3f} "
-                    f"total_s={_mbada_after_persist - _mbada_review_started:.3f}",
-                    flush=True,
-                )
-                log_location_event(
-
-                    user["id"],
-
-                    "adaptive_practice_reviewed",
-
-                    page=page,
-
-                    topic=practice_topic,
-
-                    subtopic=practice_subtopic,
-
-                    gps=None,
-
-                )
-
-                st.rerun()
-
-
-
-        practice_result = practice_state.get("result")
-        if practice_result:
-            mbada_mastery_result = (
-                practice_result.get(
-                    "mbada_mastery"
+                    or "—"
                 )
             )
 
-            if mbada_mastery_result:
-                mastery_score = float(
-                    mbada_mastery_result.get(
+            if current_mbada_mastery:
+                current_score = float(
+                    current_mbada_mastery.get(
                         "mastery_score"
                     )
                     or 0
-                )
-                mastery_threshold = float(
-                    mbada_mastery_result.get(
-                        "mastery_threshold"
-                    )
-                    or 80
-                )
-                mastery_state = str(
-                    mbada_mastery_result.get(
-                        "mastery_state"
-                    )
-                    or "developing"
-                )
-
-                st.markdown(
-                    "#### Ruta de dominio MBADA"
-                )
-
-                st.caption(
-                    "MBADA significa Metodología Bunseki de "
-                    "Aprendizaje por Dominio Adaptativo. "
-                    "El dominio es distinto de la nota de una evaluación."
                 )
 
                 st.progress(
@@ -19283,143 +17600,898 @@ def student_page(user):
                         0,
                         min(
                             100,
-                            int(round(mastery_score)),
+                            int(round(current_score)),
                         ),
                     ),
                     text=(
                         f"Dominio acumulado: "
-                        f"{mastery_score:.0f}% · "
-                        f"Umbral aprobado: "
-                        f"{mastery_threshold:.0f}%"
+                        f"{current_score:.0f}% · "
+                        f"Estado: "
+                        f"{current_mbada_mastery.get('mastery_state')}"
                     ),
                 )
 
-                if mastery_state == "mastered":
-                    st.success(
-                        "Dominio MBADA alcanzado para esta "
-                        "versión metodológica."
-                    )
-                elif mastery_state == "proficient":
-                    st.info(
-                        "Estás cerca del dominio. Continúa con "
-                        "la siguiente práctica adaptada."
-                    )
-                else:
-                    st.info(
-                        "El dominio está en desarrollo. "
-                        "BunsekiChat continuará ajustando la práctica."
-                    )
+    st.session_state[subtopic_value_key] = practice_subtopic
 
-        if practice_result:
-
-            st.success(
-
-                f"Práctica revisada: {practice_result['correct']} de {practice_result['total']} respuestas correctas. "
-
-                "Este dato orienta la siguiente práctica y no es una calificación."
-
-            )
-
-            st.info(
-
-                f"Siguiente práctica recomendada: {practice_result['next_difficulty']}. "
-
-                f"{practice_result['reason']}"
-
-            )
-
-            if practice_level_choice != "Recomendado":
-
-                st.caption(
-
-                    f"Estás en modo manual ({practice_difficulty}). La recomendación no cambia tu selección; puedes modificar el nivel arriba cuando quieras."
-
-                )
-
-            for reviewed in practice_result.get("reviewed", []):
-
-                icon = "✅" if reviewed.get("is_correct") else "❌"
-
-                st.markdown(
-
-                    f"**{icon} {reviewed.get('question')}**  \n"
-
-                    f"Tu respuesta: {reviewed.get('answer')}  \n"
-
-                    f"Respuesta esperada: {reviewed.get('correct_answer')}  \n"
-
-                    f"{reviewed.get('explanation') or ''}"
-
-                )
-
-            st.markdown("**Prompts recomendados para elevar tu nivel**")
-
-            for prompt_text in adaptive_learning_prompts(
-                    [practice_subtopic],
-                    practice_result.get("next_difficulty"),
-                    practice_subtopic,
-                ):
-
-                st.code(prompt_text, language=None)
+    subtopic = practice_subtopic
 
 
 
-            if practice_level_choice == "Recomendado":
+    level_choices = ["Recomendado", *ADAPTIVE_DIFFICULTIES]
 
-                next_button_label = f"Nueva práctica adaptada · {practice_result['next_difficulty']}"
+    level_state_key = (
+        f"adaptive_practice_level_choice_{user['id']}_"
+        f"{strip_accents(practice_topic).lower()}_"
+        f"{strip_accents(practice_subtopic).lower()}"
+    )
 
-            else:
+    level_value_key = (
+        f"adaptive_practice_level_value_{user['id']}_"
+        f"{strip_accents(practice_topic).lower()}_"
+        f"{strip_accents(practice_subtopic).lower()}"
+    )
+    if active_mbada_methodology:
+        st.session_state[level_state_key] = "Recomendado"
+        st.session_state[level_value_key] = "Recomendado"
+    persisted_level = st.session_state.get(level_value_key)
+    if (
+        st.session_state.get(level_state_key) not in level_choices
+        and persisted_level in level_choices
+    ):
+        st.session_state[level_state_key] = persisted_level
 
-                next_button_label = f"Nueva práctica · {practice_difficulty} (nivel elegido)"
+    if st.session_state.get(level_state_key) not in level_choices:
+
+        st.session_state[level_state_key] = "Recomendado"
+
+    practice_level_choice = st.selectbox(
+
+        "Nivel de práctica",
+
+        level_choices,
+
+        key=level_state_key,
+
+        disabled=bool(active_mbada_methodology),
+        help="Recomendado parte de tu nivel actual y se ajusta con tus resultados. Los otros niveles permiten práctica libre.",
+
+                                        format_func=lambda value: PRACTICE_LEVEL_LABELS.get(value, value),
+)
+    if active_mbada_methodology:
+        practice_level_choice = "Recomendado"
+        st.caption(
+            "Ruta MBADA activa: la dificultad se ajusta automáticamente "
+            "según tu desempeño y el umbral de dominio aprobado."
+        )
+
+    st.session_state[level_value_key] = practice_level_choice
+    st.caption(PRACTICE_LEVEL_HELP.get(practice_level_choice, ""))
 
 
 
-            if st.button(
+    practice_key = (
+        f"adaptive_practice_state_{user['id']}_"
+        f"{strip_accents(practice_topic).lower()}_"
+        f"{strip_accents(practice_subtopic).lower()}"
+    )
 
-                next_button_label,
+    if practice_key not in st.session_state:
 
-                key=f"next_practice_{user['id']}_{practice_round}",
+        profile_level = prof.get("level") if prof.get("level") in ADAPTIVE_DIFFICULTIES else "Básico"
 
-                use_container_width=True,
+        st.session_state[practice_key] = {
 
-            ):
+            "round": 1,
 
-                practice_state["round"] = practice_round + 1
-                practice_state["items"] = []
-                practice_state["items_signature"] = None
+            "difficulty": normalize_adaptive_difficulty(profile_level),
 
-                if practice_level_choice == "Recomendado":
+            "result": None,
 
-                    practice_state["difficulty"] = practice_result["next_difficulty"]
+            "selection_signature": None,
 
-                else:
+        }
 
-                    practice_state["difficulty"] = practice_difficulty
 
-                practice_state["result"] = None
 
-                st.session_state[practice_key] = practice_state
+    practice_state = st.session_state[practice_key]
 
-                _adaptive_practice_persist_active(
+    selection_signature = f"{practice_topic}|{practice_subtopic}|{practice_level_choice}"
+
+    if practice_state.get("selection_signature") != selection_signature:
+
+        practice_state["round"] = 1
+
+        practice_state["result"] = None
+        practice_state["items"] = []
+        practice_state["items_signature"] = None
+
+        practice_state["selection_signature"] = selection_signature
+
+        if practice_level_choice != "Recomendado":
+
+            practice_state["difficulty"] = normalize_adaptive_difficulty(practice_level_choice)
+
+        else:
+
+            profile_level = prof.get("level") if prof.get("level") in ADAPTIVE_DIFFICULTIES else "Básico"
+
+            practice_state["difficulty"] = normalize_adaptive_difficulty(profile_level)
+
+        st.session_state[practice_key] = practice_state
+
+
+
+    # R8.22E5: reconcile stale persisted practice metadata with MBADA mastery.
+    if active_mbada_methodology and current_mbada_mastery:
+        completed_mbada_rounds = int(
+            current_mbada_mastery.get("retrieval_count") or 0
+        )
+        active_state_round = max(
+            1,
+            int(practice_state.get("round") or 1),
+        )
+
+        stale_completed_round = (
+            completed_mbada_rounds >= active_state_round
+            and practice_state.get("result") is None
+        )
+
+        if stale_completed_round:
+            latest_route_difficulty = (
+                get_student_latest_route_practice_difficulty(
                     user["id"],
                     practice_topic,
                     practice_subtopic,
-                    practice_level_choice,
-                    practice_difficulty,
-                    practice_state,
+                )
+            )
+
+            base_difficulty = (
+                latest_route_difficulty
+                or normalize_adaptive_difficulty(
+                    practice_state.get("difficulty")
+                    or profile_level
+                    or "Básico"
+                )
+            )
+
+            cumulative_mastery_score = float(
+                current_mbada_mastery.get("mastery_score") or 0
+            )
+
+            reconciled_difficulty, _ = (
+                adaptive_practice_next_difficulty(
+                    base_difficulty,
+                    cumulative_mastery_score,
+                    100,
+                )
+            )
+
+            practice_state["round"] = completed_mbada_rounds + 1
+            practice_state["difficulty"] = reconciled_difficulty
+            practice_state["result"] = None
+            practice_state["items"] = []
+            practice_state["items_signature"] = None
+            practice_state["selection_signature"] = selection_signature
+            st.session_state[practice_key] = practice_state
+
+            st.caption(
+                "Continuidad MBADA reconciliada: "
+                f"se inicia la ronda {completed_mbada_rounds + 1} "
+                f"en nivel {reconciled_difficulty}."
+            )
+
+    if practice_level_choice == "Recomendado":
+
+        practice_difficulty = normalize_adaptive_difficulty(practice_state.get("difficulty") or "Básico")
+
+        practice_mode_label = "Adaptativo automático"
+
+    else:
+
+        practice_difficulty = normalize_adaptive_difficulty(practice_level_choice)
+
+        practice_state["difficulty"] = practice_difficulty
+
+        st.session_state[practice_key] = practice_state
+
+        practice_mode_label = "Nivel elegido por el estudiante"
+
+
+
+    practice_round = int(practice_state.get("round") or 1)
+
+    try:
+                    # BUNSEKI_R8_21_3_ACTIVE_PRACTICE_PERSISTENCE
+        practice_items_signature = (
+            f"{practice_topic}|{practice_subtopic}|"
+            f"{practice_difficulty}|{practice_round}"
+        )
+        cached_practice_items = practice_state.get("items") or []
+        cached_items_signature = practice_state.get("items_signature")
+        if cached_practice_items and cached_items_signature == practice_items_signature:
+            practice_items = cached_practice_items
+        else:
+            practice_items = adaptive_practice_questions(
+                            user["id"],
+                            practice_topic,
+                            practice_difficulty,
+                            n_questions=5,
+                            round_no=practice_round,
+                            current_subtopic=practice_subtopic,
+                        )
+            practice_state["items"] = practice_items
+            practice_state["items_signature"] = practice_items_signature
+
+            _adaptive_practice_persist_active(
+                user["id"],
+                practice_topic,
+                practice_subtopic,
+                practice_level_choice,
+                practice_difficulty,
+                practice_state,
+            )
+    except Exception as practice_generation_error:
+        st.error(
+            "No se pudo preparar una práctica verificada para "
+            f"{practice_topic} → {practice_subtopic}: "
+            f"{practice_generation_error}"
+        )
+        st.stop()
+
+
+
+    st.markdown(
+
+        "<div class='quiz-card-premium'><h3>🎯 Práctica adaptativa</h3>"
+
+        "<p class='small'>5 preguntas para entrenarte antes de una evaluación. No genera nota, no altera el pretest/posttest y no cambia tu nivel oficial.</p>"
+
+        f"<span class='quiz-topic-chip'>Tema: {practice_topic}</span>"
+          f"<span class='quiz-topic-chip'>Subtema: {practice_subtopic}</span>"
+
+        f"<span class='quiz-topic-chip'>Nivel: {practice_difficulty}</span>"
+
+        f"<span class='quiz-topic-chip'>Modo: {practice_mode_label}</span></div>",
+
+        unsafe_allow_html=True,
+
+    )
+
+
+
+    practice_attempt_id = (
+        st.session_state.get(
+            f"adaptive_practice_attempt_id_{user['id']}"
+        )
+    )
+
+    if not practice_attempt_id:
+        restored_active = (
+            _adaptive_practice_restore_active(
+                user["id"]
+            )
+        )
+
+        if restored_active:
+            practice_attempt_id = (
+                restored_active.get(
+                    "attempt_id"
+                )
+            )
+
+            if practice_attempt_id:
+                st.session_state[
+                    (
+                        "adaptive_practice_"
+                        f"attempt_id_{user['id']}"
+                    )
+                ] = int(
+                    practice_attempt_id
                 )
 
-                st.rerun()
+    practice_batch_key = (
+        _adaptive_practice_batch_key(
+            user["id"],
+            practice_topic,
+            practice_subtopic,
+            practice_difficulty,
+            practice_round,
+        )
+    )
+
+    practice_saved_answers = (
+        _adaptive_practice_load_saved_answers(
+            user["id"],
+            practice_attempt_id,
+        )
+    )
+
+    practice_answers = {}
+
+    recovered_answer_count = 0
+
+    autosave_error_key = (
+        "adaptive_practice_"
+        f"autosave_error_{user['id']}"
+    )
+
+    autosave_error = (
+        st.session_state.get(
+            autosave_error_key
+        )
+    )
+
+    if autosave_error:
+        st.warning(
+            "La última respuesta no pudo "
+            "guardarse automáticamente. "
+            "Puedes volver a seleccionarla."
+        )
+
+    for i, item in enumerate(
+        practice_items,
+        start=1,
+    ):
+        options = (
+            item.get("options")
+            or []
+        )
+
+        question_key = (
+            _adaptive_practice_answer_question_key(
+                item,
+                practice_batch_key,
+            )
+        )
+
+        widget_key = (
+            _adaptive_practice_answer_widget_key(
+                user["id"],
+                practice_round,
+                item,
+                practice_batch_key,
+            )
+        )
+
+        saved_row = (
+            practice_saved_answers.get(
+                question_key
+            )
+        )
+
+        if (
+            widget_key
+            not in st.session_state
+            and saved_row
+        ):
+            payload = (
+                saved_row.get(
+                    "answer_json"
+                )
+                or {}
+            )
+
+            if isinstance(
+                payload,
+                dict,
+            ):
+                saved_value = (
+                    payload.get(
+                        "value"
+                    )
+                )
+
+                if saved_value in options:
+                    st.session_state[
+                        widget_key
+                    ] = saved_value
+
+                    recovered_answer_count += 1
+
+        practice_answers[
+            str(i)
+        ] = st.radio(
+            (
+                f"{i}. "
+                f"[{item.get('bloom_level') or 'Comprender'}] "
+                f"{item.get('question')}"
+            ),
+            options,
+            index=None,
+            key=widget_key,
+            on_change=(
+                _adaptive_practice_autosave_answer
+            ),
+            args=(
+                user["id"],
+                practice_attempt_id,
+                item,
+                i,
+                widget_key,
+                practice_batch_key,
+            ),
+        )
+
+    if recovered_answer_count:
+        st.caption(
+            "Progreso recuperado: "
+            f"{recovered_answer_count}/"
+            f"{len(practice_items)} "
+            "respuestas guardadas."
+        )
+
+    elif any(
+        value is not None
+        for value in practice_answers.values()
+    ):
+        st.caption(
+            "Guardado automático activo."
+        )
+
+    practice_submit = st.button(
+        "Revisar práctica",
+        key=(
+            "adaptive_practice_submit_"
+            f"{user['id']}_"
+            f"{practice_round}_"
+            f"{practice_difficulty}"
+        ),
+        use_container_width=True,
+    )
 
 
 
-        df = pd.DataFrame(user_q)
 
-        if not df.empty:
+    if practice_submit:
 
-            fig = px.histogram(df, x='topic', title='Consultas por área')
+        unanswered = [key for key, value in practice_answers.items() if value is None]
 
-            st.plotly_chart(fig, use_container_width=True)
+        if unanswered:
+
+            st.warning("Responde las 5 preguntas para recibir una ruta de práctica adaptada.")
+
+        else:
+
+            # R8.22E7: visible review progress and scoped runtime timings.
+            import time as _mbada_review_time
+            _mbada_review_started = _mbada_review_time.perf_counter()
+            st.info("Revisando respuestas y actualizando el dominio…")
+            _mbada_bank_seconds = 0.0
+
+            reviewed = []
+
+            correct_count = 0
+
+            weak_topics = []
+            bank_review_records = []
+
+            for i, item in enumerate(practice_items, start=1):
+
+                answer = practice_answers[str(i)]
+
+                ok = str(answer).strip() == str(item.get("correct_answer") or "").strip()
+
+                correct_count += int(ok)
+
+                if not ok:
+
+                    weak_topics.append(item.get("topic") or topic)
+
+                reviewed.append({
+
+                    "question": item.get("question"),
+
+                    "answer": answer,
+
+                    "correct_answer": item.get("correct_answer"),
+
+                    "explanation": item.get("explanation"),
+
+                    "topic": item.get("topic") or practice_topic,
+                    "subtopic": item.get("subtopic") or practice_subtopic,
+
+                    "is_correct": ok,
+
+                })
+                bank_review_records.append({
+                    "uid": user["id"], "item": item, "answer": answer,
+                    "is_correct": ok, "topic": practice_topic,
+                    "subtopic": practice_subtopic, "difficulty": practice_difficulty,
+                    "attempt_key": (
+                        f"ai_practice|{user['id']}|{practice_topic}|{practice_subtopic}|"
+                        f"{practice_difficulty}|{practice_round}|{item.get('item_code') or stable_item_code(item.get('question', ''))}"
+                    ),
+                })
+
+            _mbada_bank_start = _mbada_review_time.perf_counter()
+            record_ai_practice_bank_results_batch(bank_review_records)
+            _mbada_bank_seconds = _mbada_review_time.perf_counter() - _mbada_bank_start
+            _mbada_after_bank = _mbada_review_time.perf_counter()
+            next_difficulty, reason = adaptive_practice_next_difficulty(
+
+                practice_difficulty,
+
+                correct_count,
+
+                len(practice_items),
+
+            )
+            # R8.22E9: after reaching Advanced in MBADA, a weak round
+            # triggers more Advanced consolidation instead of demotion.
+            if (
+                active_mbada_methodology
+                and practice_difficulty == "Avanzado"
+                and next_difficulty != "Avanzado"
+            ):
+                next_difficulty = "Avanzado"
+                reason = (
+                    "Consolidaremos este nivel con nuevos problemas y "
+                    "retroalimentación antes de avanzar."
+                )
+
+            practice_state["result"] = {
+
+                "correct": correct_count,
+
+                "total": len(practice_items),
+
+                "reviewed": reviewed,
+
+                "weak_topics": list(dict.fromkeys(weak_topics)),
+
+                "next_difficulty": next_difficulty,
+
+                "reason": reason,
+
+            }
+            if active_mbada_methodology:
+                mbada_record_key = (
+                    f"{active_mbada_methodology['id']}|"
+                    f"{practice_round}|"
+                    f"{practice_topic}|"
+                    f"{practice_subtopic}|"
+                    f"{practice_difficulty}"
+                )
+
+                mbada_recorded_keys = set(
+                    str(value)
+                    for value in (
+                        practice_state.get(
+                            "mbada_recorded_keys"
+                        )
+                        or []
+                    )
+                )
+
+                try:
+                    if mbada_record_key not in mbada_recorded_keys:
+                        mbada_mastery = (
+                            record_student_mbada_practice_result(
+                                user["id"],
+                                active_mbada_methodology,
+                                correct_count,
+                                len(practice_items),
+                                practice_round,
+                            )
+                        )
+
+                        mbada_recorded_keys.add(
+                            mbada_record_key
+                        )
+
+                        practice_state[
+                            "mbada_recorded_keys"
+                        ] = sorted(
+                            mbada_recorded_keys
+                        )
+                    else:
+                        mbada_mastery = (
+                            get_student_topic_mastery(
+                                user["id"],
+                                active_mbada_methodology[
+                                    "plan_topic_id"
+                                ],
+                                active_mbada_methodology[
+                                    "id"
+                                ],
+                            )
+                        )
+
+                        if mbada_mastery:
+                            mbada_mastery = dict(
+                                mbada_mastery
+                            )
+                            mbada_mastery[
+                                "mastery_threshold"
+                            ] = float(
+                                active_mbada_methodology.get(
+                                    "mastery_threshold"
+                                )
+                                or 80
+                            )
+
+                    if mbada_mastery:
+                        practice_state["result"][
+                            "mbada_mastery"
+                        ] = {
+                            "id": mbada_mastery.get("id"),
+                            "methodology_id": (
+                                active_mbada_methodology[
+                                    "id"
+                                ]
+                            ),
+                            "plan_topic_id": (
+                                active_mbada_methodology[
+                                    "plan_topic_id"
+                                ]
+                            ),
+                            "mastery_state": (
+                                mbada_mastery.get(
+                                    "mastery_state"
+                                )
+                            ),
+                            "mastery_score": float(
+                                mbada_mastery.get(
+                                    "mastery_score"
+                                )
+                                or 0
+                            ),
+                            "mastery_threshold": float(
+                                mbada_mastery.get(
+                                    "mastery_threshold"
+                                )
+                                or active_mbada_methodology.get(
+                                    "mastery_threshold"
+                                )
+                                or 80
+                            ),
+                            "attempts_count": int(
+                                mbada_mastery.get(
+                                    "attempts_count"
+                                )
+                                or 0
+                            ),
+                            "correct_count": int(
+                                mbada_mastery.get(
+                                    "correct_count"
+                                )
+                                or 0
+                            ),
+                        }
+
+                except Exception as mbada_mastery_error:
+                    st.error(
+                        "La práctica fue revisada, pero no se pudo "
+                        "actualizar el registro de dominio MBADA. "
+                        f"Detalle: {mbada_mastery_error}"
+                    )
+
+            _mbada_after_mastery = _mbada_review_time.perf_counter()
+            st.session_state[practice_key] = practice_state
+
+            _adaptive_practice_persist_active(
+                user["id"],
+                practice_topic,
+                practice_subtopic,
+                practice_level_choice,
+                practice_difficulty,
+                practice_state,
+            )
+
+            _mbada_after_persist = _mbada_review_time.perf_counter()
+            print(
+                "MBADA_REVIEW_TIMING "
+                f"uid={user['id']} round={practice_round} "
+                f"bank_s={_mbada_bank_seconds:.3f} "
+                f"loop_s={_mbada_after_bank - _mbada_review_started:.3f} "
+                f"mastery_s={_mbada_after_mastery - _mbada_after_bank:.3f} "
+                f"persist_s={_mbada_after_persist - _mbada_after_mastery:.3f} "
+                f"total_s={_mbada_after_persist - _mbada_review_started:.3f}",
+                flush=True,
+            )
+            log_location_event(
+
+                user["id"],
+
+                "adaptive_practice_reviewed",
+
+                page=page,
+
+                topic=practice_topic,
+
+                subtopic=practice_subtopic,
+
+                gps=None,
+
+            )
+
+            st.rerun()
+
+
+
+    practice_result = practice_state.get("result")
+    if practice_result:
+        mbada_mastery_result = (
+            practice_result.get(
+                "mbada_mastery"
+            )
+        )
+
+        if mbada_mastery_result:
+            mastery_score = float(
+                mbada_mastery_result.get(
+                    "mastery_score"
+                )
+                or 0
+            )
+            mastery_threshold = float(
+                mbada_mastery_result.get(
+                    "mastery_threshold"
+                )
+                or 80
+            )
+            mastery_state = str(
+                mbada_mastery_result.get(
+                    "mastery_state"
+                )
+                or "developing"
+            )
+
+            st.markdown(
+                "#### Ruta de dominio MBADA"
+            )
+
+            st.caption(
+                "MBADA significa Metodología Bunseki de "
+                "Aprendizaje por Dominio Adaptativo. "
+                "El dominio es distinto de la nota de una evaluación."
+            )
+
+            st.progress(
+                max(
+                    0,
+                    min(
+                        100,
+                        int(round(mastery_score)),
+                    ),
+                ),
+                text=(
+                    f"Dominio acumulado: "
+                    f"{mastery_score:.0f}% · "
+                    f"Umbral aprobado: "
+                    f"{mastery_threshold:.0f}%"
+                ),
+            )
+
+            if mastery_state == "mastered":
+                st.success(
+                    "Dominio MBADA alcanzado para esta "
+                    "versión metodológica."
+                )
+            elif mastery_state == "proficient":
+                st.info(
+                    "Estás cerca del dominio. Continúa con "
+                    "la siguiente práctica adaptada."
+                )
+            else:
+                st.info(
+                    "El dominio está en desarrollo. "
+                    "BunsekiChat continuará ajustando la práctica."
+                )
+
+    if practice_result:
+
+        st.success(
+
+            f"Práctica revisada: {practice_result['correct']} de {practice_result['total']} respuestas correctas. "
+
+            "Este dato orienta la siguiente práctica y no es una calificación."
+
+        )
+
+        st.info(
+
+            f"Siguiente práctica recomendada: {practice_result['next_difficulty']}. "
+
+            f"{practice_result['reason']}"
+
+        )
+
+        if practice_level_choice != "Recomendado":
+
+            st.caption(
+
+                f"Estás en modo manual ({practice_difficulty}). La recomendación no cambia tu selección; puedes modificar el nivel arriba cuando quieras."
+
+            )
+
+        for reviewed in practice_result.get("reviewed", []):
+
+            icon = "✅" if reviewed.get("is_correct") else "❌"
+
+            st.markdown(
+
+                f"**{icon} {reviewed.get('question')}**  \n"
+
+                f"Tu respuesta: {reviewed.get('answer')}  \n"
+
+                f"Respuesta esperada: {reviewed.get('correct_answer')}  \n"
+
+                f"{reviewed.get('explanation') or ''}"
+
+            )
+
+        st.markdown("**Prompts recomendados para elevar tu nivel**")
+
+        for prompt_text in adaptive_learning_prompts(
+                [practice_subtopic],
+                practice_result.get("next_difficulty"),
+                practice_subtopic,
+            ):
+
+            st.code(prompt_text, language=None)
+
+
+
+        if practice_level_choice == "Recomendado":
+
+            next_button_label = f"Nueva práctica adaptada · {practice_result['next_difficulty']}"
+
+        else:
+
+            next_button_label = f"Nueva práctica · {practice_difficulty} (nivel elegido)"
+
+
+
+        if st.button(
+
+            next_button_label,
+
+            key=f"next_practice_{user['id']}_{practice_round}",
+
+            use_container_width=True,
+
+        ):
+
+            practice_state["round"] = practice_round + 1
+            practice_state["items"] = []
+            practice_state["items_signature"] = None
+
+            if practice_level_choice == "Recomendado":
+
+                practice_state["difficulty"] = practice_result["next_difficulty"]
+
+            else:
+
+                practice_state["difficulty"] = practice_difficulty
+
+            practice_state["result"] = None
+
+            st.session_state[practice_key] = practice_state
+
+            _adaptive_practice_persist_active(
+                user["id"],
+                practice_topic,
+                practice_subtopic,
+                practice_level_choice,
+                practice_difficulty,
+                practice_state,
+            )
+
+            st.rerun()
+
+
+
+    df = pd.DataFrame(user_q)
+
+    if not df.empty:
+
+        fig = px.histogram(df, x='topic', title='Consultas por área')
+
+        st.plotly_chart(fig, use_container_width=True)
+
+
+
 
 
 
@@ -22475,480 +21547,459 @@ def render_admin_teacher_assignment_manager(admin_user):
 
 
 def admin_page(user):
-    render_admin_ai_practice_bank_manager(user)
-    with st.expander("👨‍🏫 Gestión docente y asignaciones", expanded=False):
-        render_admin_teacher_assignment_manager(user)
+    from bunseki.ui.admin_dashboard import render_admin_header
+    from bunseki.ui.admin_tools import render_tools_heading
+    with st.container(key="bui_admin_surface"):
+        render_admin_header(st, BUNSEKI_FRONTEND_LOGO_DATA_URI)
+        render_tools_heading(st)
+        render_admin_ai_practice_bank_manager(user)
+        with st.expander("👨‍🏫 Gestión docente y asignaciones", expanded=False):
+            render_admin_teacher_assignment_manager(user)
 
-    render_admin_password_reset(user)
+        render_admin_password_reset(user)
 
 
-    teacher_page = render_teacher_sidebar()
-
-
-
-    # CSS específico para que el dashboard docente no se corte y ocupe todo el ancho.
-
-    st.markdown("""
-
-    <style>
-
-    .block-container{
-
-        max-width:100% !important;
-
-        padding-left:2rem !important;
-
-        padding-right:2rem !important;
-
-        padding-bottom:5rem !important;
-
-    }
-
-    div[data-testid="stVerticalBlock"]{overflow:visible !important;}
-
-    .stPlotlyChart{width:100% !important; overflow:visible !important;}
-
-    div[data-testid="stDataFrame"]{width:100% !important;}
-
-    </style>
-
-    """, unsafe_allow_html=True)
+        teacher_page = render_teacher_sidebar()
 
 
 
-    st.markdown("<div class='hero'>" + bunseki_logo_html("Dashboard docente PRO", "Analítica, trazabilidad, exportación y seguimiento académico") + "</div>", unsafe_allow_html=True)
+        # CSS específico para que el dashboard docente no se corte y ocupe todo el ancho.
 
 
 
-    users, logs, quizzes = get_teacher_tables()
-
-    students = users[users["role"].astype(str).str.lower().eq("student")].copy() if not users.empty and "role" in users.columns else pd.DataFrame()
 
 
 
-    # Configuración solo cuando se elige el menú correspondiente
 
-    if teacher_page == "⚙️ Configuración":
+        users, logs, quizzes = get_teacher_tables()
 
-        st.markdown("<div class='teacher-card'><h3>⚙️ Configuración</h3><p class='small'>Ajustes generales de sesión y parámetros administrativos.</p></div>", unsafe_allow_html=True)
-
-        timeout = st.number_input("Inactividad (minutos)", 5, 180, get_timeout())
-
-        if st.button("Guardar configuración", use_container_width=True):
-
-            set_timeout(int(timeout)); st.success("Configuración guardada.")
-
-        return
+        students = users[users["role"].astype(str).str.lower().eq("student")].copy() if not users.empty and "role" in users.columns else pd.DataFrame()
 
 
 
-    if teacher_page == "📚 Planes analíticos":
+        # Configuración solo cuando se elige el menú correspondiente
 
-        render_teacher_plan_manager(user)
+        if teacher_page == "⚙️ Configuración":
 
-        return
+            st.markdown("<div class='teacher-card'><h3>⚙️ Configuración</h3><p class='small'>Ajustes generales de sesión y parámetros administrativos.</p></div>", unsafe_allow_html=True)
 
+            timeout = st.number_input("Inactividad (minutos)", 5, 180, get_timeout())
 
+            if st.button("Guardar configuración", use_container_width=True):
 
-    if teacher_page == "👥 Matrícula masiva":
+                set_timeout(int(timeout)); st.success("Configuración guardada.")
 
-        render_bulk_enrollment_page(user)
-
-        return
-
-
-
-    if teacher_page == "🧪 Investigación pre/post":
-
-        render_teacher_research_dashboard(user)
-
-        return
+            return
 
 
 
-    render_scientific_learning_analytics_dashboard()
-    st.divider()
-    st.caption("Indicadores operativos existentes")
+        if teacher_page == "📚 Planes analíticos":
 
-    total_students = len(students)
+            render_teacher_plan_manager(user)
 
-    user_logs_all = logs[logs["role"].astype(str).str.lower().eq("user")].copy() if not logs.empty and "role" in logs.columns else pd.DataFrame()
-
-    total_questions = len(user_logs_all)
-
-    active_students = user_logs_all["user_id"].nunique() if not user_logs_all.empty and "user_id" in user_logs_all.columns else 0
+            return
 
 
 
-    if not quizzes.empty and "score" in quizzes.columns:
+        if teacher_page == "👥 Matrícula masiva":
 
-        quizzes["score"] = pd.to_numeric(quizzes["score"], errors="coerce")
+            render_bulk_enrollment_page(user)
 
-        avg_score = quizzes["score"].dropna().mean()
+            return
 
-        if pd.isna(avg_score):
+
+
+        if teacher_page == "🧪 Investigación pre/post":
+
+            render_teacher_research_dashboard(user)
+
+            return
+
+
+
+        render_scientific_learning_analytics_dashboard()
+        st.divider()
+        st.caption("Indicadores operativos existentes")
+
+        total_students = len(students)
+
+        user_logs_all = logs[logs["role"].astype(str).str.lower().eq("user")].copy() if not logs.empty and "role" in logs.columns else pd.DataFrame()
+
+        total_questions = len(user_logs_all)
+
+        active_students = user_logs_all["user_id"].nunique() if not user_logs_all.empty and "user_id" in user_logs_all.columns else 0
+
+
+
+        if not quizzes.empty and "score" in quizzes.columns:
+
+            quizzes["score"] = pd.to_numeric(quizzes["score"], errors="coerce")
+
+            avg_score = quizzes["score"].dropna().mean()
+
+            if pd.isna(avg_score):
+
+                avg_score = 0
+
+        else:
 
             avg_score = 0
 
-    else:
 
-        avg_score = 0
 
+        k1,k2,k3,k4 = st.columns(4)
 
+        k1.markdown(f"<div class='metric'><b>{total_students}</b><br><span>Estudiantes</span></div>", unsafe_allow_html=True)
 
-    k1,k2,k3,k4 = st.columns(4)
+        k2.markdown(f"<div class='metric'><b>{total_questions}</b><br><span>Consultas realizadas</span></div>", unsafe_allow_html=True)
 
-    k1.markdown(f"<div class='metric'><b>{total_students}</b><br><span>Estudiantes</span></div>", unsafe_allow_html=True)
+        k3.markdown(f"<div class='metric'><b>{active_students}</b><br><span>Estudiantes activos</span></div>", unsafe_allow_html=True)
 
-    k2.markdown(f"<div class='metric'><b>{total_questions}</b><br><span>Consultas realizadas</span></div>", unsafe_allow_html=True)
+        k4.markdown(f"<div class='metric'><b>{avg_score:.0f}%</b><br><span>Promedio pruebas</span></div>", unsafe_allow_html=True)
 
-    k3.markdown(f"<div class='metric'><b>{active_students}</b><br><span>Estudiantes activos</span></div>", unsafe_allow_html=True)
 
-    k4.markdown(f"<div class='metric'><b>{avg_score:.0f}%</b><br><span>Promedio pruebas</span></div>", unsafe_allow_html=True)
 
+        st.markdown("<div class='teacher-card'><h3>Filtros académicos</h3></div>", unsafe_allow_html=True)
 
+        f1,f2,f3,f4,f5,f6 = st.columns(6)
 
-    st.markdown("<div class='teacher-card'><h3>Filtros académicos</h3></div>", unsafe_allow_html=True)
 
-    f1,f2,f3,f4,f5,f6 = st.columns(6)
 
+        def opts(df, col):
 
+            if df.empty or col not in df.columns:
 
-    def opts(df, col):
+                return ["Todos"]
 
-        if df.empty or col not in df.columns:
+            vals = sorted([str(x).strip() for x in df[col].dropna().unique() if str(x).strip()])
 
-            return ["Todos"]
+            return ["Todos"] + vals
 
-        vals = sorted([str(x).strip() for x in df[col].dropna().unique() if str(x).strip()])
 
-        return ["Todos"] + vals
 
+        sel_subject = f1.selectbox("Materia", opts(students, "subject"))
 
+        sel_course = f2.selectbox("Curso", opts(students, "course"))
 
-    sel_subject = f1.selectbox("Materia", opts(students, "subject"))
+        sel_parallel = f3.selectbox("Paralelo", opts(students, "parallel"))
 
-    sel_course = f2.selectbox("Curso", opts(students, "course"))
+        sel_shift = f4.selectbox("Jornada", opts(students, "shift"))
 
-    sel_parallel = f3.selectbox("Paralelo", opts(students, "parallel"))
+        sel_teacher = f5.selectbox("Docente", opts(students, "teacher"))
 
-    sel_shift = f4.selectbox("Jornada", opts(students, "shift"))
+        sel_level = f6.selectbox("Nivel", opts(students, "level"))
 
-    sel_teacher = f5.selectbox("Docente", opts(students, "teacher"))
+        f7, f8, f9 = st.columns(3)
 
-    sel_level = f6.selectbox("Nivel", opts(students, "level"))
+        sel_data_status = f7.selectbox("Tipo de dato", ["Todos", "Solo oficiales", "Solo piloto"], key="admin_data_status")
 
-    f7, f8, f9 = st.columns(3)
+        sel_cohort = f8.selectbox("Cohorte de investigación", opts(students, "cohort"), key="admin_cohort")
 
-    sel_data_status = f7.selectbox("Tipo de dato", ["Todos", "Solo oficiales", "Solo piloto"], key="admin_data_status")
+        sel_research_group = f9.selectbox("Grupo de investigación", opts(students, "research_group"), key="admin_research_group")
 
-    sel_cohort = f8.selectbox("Cohorte de investigación", opts(students, "cohort"), key="admin_cohort")
 
-    sel_research_group = f9.selectbox("Grupo de investigación", opts(students, "research_group"), key="admin_research_group")
 
+        filtered_students = students.copy()
 
+        if not filtered_students.empty:
 
-    filtered_students = students.copy()
+            if sel_subject != "Todos": filtered_students = filtered_students[filtered_students["subject"].astype(str) == sel_subject]
 
-    if not filtered_students.empty:
+            if sel_course != "Todos": filtered_students = filtered_students[filtered_students["course"].astype(str) == sel_course]
 
-        if sel_subject != "Todos": filtered_students = filtered_students[filtered_students["subject"].astype(str) == sel_subject]
+            if sel_parallel != "Todos": filtered_students = filtered_students[filtered_students["parallel"].astype(str) == sel_parallel]
 
-        if sel_course != "Todos": filtered_students = filtered_students[filtered_students["course"].astype(str) == sel_course]
+            if sel_shift != "Todos": filtered_students = filtered_students[filtered_students["shift"].astype(str) == sel_shift]
 
-        if sel_parallel != "Todos": filtered_students = filtered_students[filtered_students["parallel"].astype(str) == sel_parallel]
+            if sel_teacher != "Todos": filtered_students = filtered_students[filtered_students["teacher"].astype(str) == sel_teacher]
 
-        if sel_shift != "Todos": filtered_students = filtered_students[filtered_students["shift"].astype(str) == sel_shift]
+            if sel_level != "Todos": filtered_students = filtered_students[filtered_students["level"].astype(str) == sel_level]
 
-        if sel_teacher != "Todos": filtered_students = filtered_students[filtered_students["teacher"].astype(str) == sel_teacher]
+            if sel_data_status == "Solo oficiales": filtered_students = filtered_students[filtered_students["estado_dato"].fillna("piloto").astype(str).str.lower().eq("oficial")]
 
-        if sel_level != "Todos": filtered_students = filtered_students[filtered_students["level"].astype(str) == sel_level]
+            if sel_data_status == "Solo piloto": filtered_students = filtered_students[filtered_students["estado_dato"].fillna("piloto").astype(str).str.lower().eq("piloto")]
 
-        if sel_data_status == "Solo oficiales": filtered_students = filtered_students[filtered_students["estado_dato"].fillna("piloto").astype(str).str.lower().eq("oficial")]
+            if sel_cohort != "Todos": filtered_students = filtered_students[filtered_students["cohort"].astype(str) == sel_cohort]
 
-        if sel_data_status == "Solo piloto": filtered_students = filtered_students[filtered_students["estado_dato"].fillna("piloto").astype(str).str.lower().eq("piloto")]
+            if sel_research_group != "Todos": filtered_students = filtered_students[filtered_students["research_group"].astype(str) == sel_research_group]
 
-        if sel_cohort != "Todos": filtered_students = filtered_students[filtered_students["cohort"].astype(str) == sel_cohort]
 
-        if sel_research_group != "Todos": filtered_students = filtered_students[filtered_students["research_group"].astype(str) == sel_research_group]
 
+        allowed_ids = set(filtered_students["id"].dropna().astype(int).tolist()) if not filtered_students.empty and "id" in filtered_students.columns else set()
 
 
-    allowed_ids = set(filtered_students["id"].dropna().astype(int).tolist()) if not filtered_students.empty and "id" in filtered_students.columns else set()
 
+        filtered_logs = logs.copy()
 
+        if not filtered_logs.empty and "user_id" in filtered_logs.columns:
 
-    filtered_logs = logs.copy()
+            filtered_logs = filtered_logs[filtered_logs["user_id"].isin(allowed_ids)]
 
-    if not filtered_logs.empty and "user_id" in filtered_logs.columns:
 
-        filtered_logs = filtered_logs[filtered_logs["user_id"].isin(allowed_ids)]
 
+        filtered_quizzes = quizzes.copy()
 
+        if not filtered_quizzes.empty and "user_id" in filtered_quizzes.columns:
 
-    filtered_quizzes = quizzes.copy()
+            filtered_quizzes = filtered_quizzes[filtered_quizzes["user_id"].isin(allowed_ids)]
 
-    if not filtered_quizzes.empty and "user_id" in filtered_quizzes.columns:
 
-        filtered_quizzes = filtered_quizzes[filtered_quizzes["user_id"].isin(allowed_ids)]
 
+        st.markdown(f"<div class='teacher-card'><b>Vista seleccionada en menú:</b> {teacher_page}</div>", unsafe_allow_html=True)
 
 
-    st.markdown(f"<div class='teacher-card'><b>Vista seleccionada en menú:</b> {teacher_page}</div>", unsafe_allow_html=True)
 
+        if teacher_page == "📊 Dashboard docente PRO":
 
+            st.markdown("<div class='teacher-card'><h3>📊 Resumen administrativo</h3><p class='small'>Resumen visual del desempeño, participación, cursos y resultados de pruebas.</p></div>", unsafe_allow_html=True)
 
-    if teacher_page == "📊 Dashboard docente PRO":
 
-        st.markdown("<div class='teacher-card'><h3>📊 Dashboard docente PRO</h3><p class='small'>Resumen visual del desempeño, participación, cursos y resultados de pruebas.</p></div>", unsafe_allow_html=True)
 
+            user_logs = filtered_logs[filtered_logs["role"].astype(str).str.lower().eq("user")].copy() if not filtered_logs.empty and "role" in filtered_logs.columns else pd.DataFrame()
 
 
-        user_logs = filtered_logs[filtered_logs["role"].astype(str).str.lower().eq("user")].copy() if not filtered_logs.empty and "role" in filtered_logs.columns else pd.DataFrame()
 
+            if user_logs.empty:
 
+                st.info("Aún no existen consultas registradas con los filtros seleccionados.")
 
-        if user_logs.empty:
+            else:
 
-            st.info("Aún no existen consultas registradas con los filtros seleccionados.")
+                c1, c2 = st.columns(2, gap="large")
 
-        else:
+                fig1 = px.histogram(user_logs, x="topic", color="course" if "course" in user_logs.columns else None, title="Consultas por área y curso")
 
-            c1, c2 = st.columns(2, gap="large")
+                fig1.update_layout(height=430, margin={"r":10,"t":60,"l":10,"b":80})
 
-            fig1 = px.histogram(user_logs, x="topic", color="course" if "course" in user_logs.columns else None, title="Consultas por área y curso")
+                c1.plotly_chart(fig1, use_container_width=True)
 
-            fig1.update_layout(height=430, margin={"r":10,"t":60,"l":10,"b":80})
 
-            c1.plotly_chart(fig1, use_container_width=True)
 
+                fig2 = px.histogram(user_logs, x="username" if "username" in user_logs.columns else "user_id", title="Participación por estudiante")
 
+                fig2.update_layout(height=430, margin={"r":10,"t":60,"l":10,"b":100})
 
-            fig2 = px.histogram(user_logs, x="username" if "username" in user_logs.columns else "user_id", title="Participación por estudiante")
+                c2.plotly_chart(fig2, use_container_width=True)
 
-            fig2.update_layout(height=430, margin={"r":10,"t":60,"l":10,"b":100})
 
-            c2.plotly_chart(fig2, use_container_width=True)
 
+            if not filtered_quizzes.empty and "score" in filtered_quizzes.columns:
 
+                fig3 = px.box(filtered_quizzes, x="topic", y="score", color="course" if "course" in filtered_quizzes.columns else None, title="Distribución de puntajes por tema")
 
-        if not filtered_quizzes.empty and "score" in filtered_quizzes.columns:
+                fig3.update_layout(height=430, margin={"r":10,"t":60,"l":10,"b":80})
 
-            fig3 = px.box(filtered_quizzes, x="topic", y="score", color="course" if "course" in filtered_quizzes.columns else None, title="Distribución de puntajes por tema")
+                st.plotly_chart(fig3, use_container_width=True)
 
-            fig3.update_layout(height=430, margin={"r":10,"t":60,"l":10,"b":80})
+            else:
 
-            st.plotly_chart(fig3, use_container_width=True)
+                st.info("Aún no existen pruebas registradas con los filtros seleccionados.")
 
-        else:
 
-            st.info("Aún no existen pruebas registradas con los filtros seleccionados.")
 
-
-
-        render_teacher_gps_heatmap(filtered_logs, filtered_students)
-
-        return
-
-
-
-    if teacher_page == "📥 Exportación":
-
-        st.markdown("""
-
-        <div class='teacher-card'>
-
-            <h3>📥 Exportación por estudiante</h3>
-
-            <p class='small'>Botones independientes para exportar CSV, Word y PDF con las consultas reales del estudiante.</p>
-
-        </div>
-
-        """, unsafe_allow_html=True)
-
-        if filtered_students.empty:
-
-            st.warning("No hay estudiantes con los filtros seleccionados.")
+            render_teacher_gps_heatmap(filtered_logs, filtered_students)
 
             return
 
 
 
-        filtered_students = filtered_students.copy()
+        if teacher_page == "📥 Exportación":
 
-        filtered_students["display"] = filtered_students.apply(lambda r: f"{r.get('username','')} · {r.get('first_names') or ''} {r.get('last_names') or ''} · {r.get('subject') or ''} · {r.get('course') or ''}", axis=1)
+            st.markdown("""
 
-        selected_label = st.selectbox("Selecciona estudiante para exportar", filtered_students["display"].tolist(), key="export_student_select")
+            <div class='teacher-card'>
 
-        selected_id = int(filtered_students.loc[filtered_students["display"] == selected_label, "id"].iloc[0])
+                <h3>📥 Exportación por estudiante</h3>
 
-        profile, report_df = build_student_summary(selected_id)
+                <p class='small'>Botones independientes para exportar CSV, Word y PDF con las consultas reales del estudiante.</p>
 
+            </div>
 
+            """, unsafe_allow_html=True)
 
-        st.markdown(
+            if filtered_students.empty:
 
-            f"<div class='teacher-card'><h3>{profile.get('first_names') or ''} {profile.get('last_names') or profile.get('username')}</h3>"
+                st.warning("No hay estudiantes con los filtros seleccionados.")
 
-            f"<span class='teacher-chip'>Usuario: {profile.get('username') or ''}</span>"
-
-            f"<span class='teacher-chip'>Materia: {profile.get('subject') or 'Sin materia'}</span>"
-
-            f"<span class='teacher-chip'>Curso: {profile.get('course') or 'Sin curso'}</span>"
-
-            f"<span class='teacher-chip'>Docente: {profile.get('teacher') or 'Sin docente'}</span>"
-
-            f"<span class='teacher-chip'>Nivel: {profile.get('level') or 'Sin nivel'}</span>"
-
-            f"<span class='teacher-chip'>Registros: {len(report_df)}</span></div>",
-
-            unsafe_allow_html=True,
-
-        )
+                return
 
 
 
-        if report_df.empty:
+            filtered_students = filtered_students.copy()
 
-            st.warning("Este estudiante no tiene consultas registradas. El archivo se generará con encabezados, pero sin filas.")
+            filtered_students["display"] = filtered_students.apply(lambda r: f"{r.get('username','')} · {r.get('first_names') or ''} {r.get('last_names') or ''} · {r.get('subject') or ''} · {r.get('course') or ''}", axis=1)
 
-        b1, b2, b3 = st.columns(3)
+            selected_label = st.selectbox("Selecciona estudiante para exportar", filtered_students["display"].tolist(), key="export_student_select")
 
-        b1.download_button("📊 Exportar CSV", report_df.to_csv(index=False).encode("utf-8-sig"), f"consultas_{profile.get('username','estudiante')}_{selected_id}.csv", "text/csv", use_container_width=True)
+            selected_id = int(filtered_students.loc[filtered_students["display"] == selected_label, "id"].iloc[0])
 
-        try:
-
-            b2.download_button("📝 Exportar Word", export_student_docx(selected_id), f"reporte_{profile.get('username','estudiante')}_{selected_id}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
-
-        except Exception as e:
-
-            b2.warning(f"Word no disponible: {e}")
-
-        try:
-
-            b3.download_button("📄 Exportar PDF", export_student_pdf(selected_id), f"reporte_{profile.get('username','estudiante')}_{selected_id}.pdf", "application/pdf", use_container_width=True)
-
-        except Exception as e:
-
-            b3.warning(f"PDF no disponible: {e}")
+            profile, report_df = build_student_summary(selected_id)
 
 
 
-        st.markdown("<div class='teacher-card'><h3>Vista previa de consultas del estudiante</h3></div>", unsafe_allow_html=True)
+            st.markdown(
 
-        st.dataframe(report_df, use_container_width=True, height=420)
+                f"<div class='teacher-card'><h3>{profile.get('first_names') or ''} {profile.get('last_names') or profile.get('username')}</h3>"
 
-        return
+                f"<span class='teacher-chip'>Usuario: {profile.get('username') or ''}</span>"
+
+                f"<span class='teacher-chip'>Materia: {profile.get('subject') or 'Sin materia'}</span>"
+
+                f"<span class='teacher-chip'>Curso: {profile.get('course') or 'Sin curso'}</span>"
+
+                f"<span class='teacher-chip'>Docente: {profile.get('teacher') or 'Sin docente'}</span>"
+
+                f"<span class='teacher-chip'>Nivel: {profile.get('level') or 'Sin nivel'}</span>"
+
+                f"<span class='teacher-chip'>Registros: {len(report_df)}</span></div>",
+
+                unsafe_allow_html=True,
+
+            )
 
 
 
-    if teacher_page == "👤 Seguimiento individual":
+            if report_df.empty:
 
-        st.markdown("<div class='teacher-card'><h3>👤 Seguimiento individual</h3><p class='small'>Revisa el comportamiento académico de cada estudiante antes de exportar.</p></div>", unsafe_allow_html=True)
+                st.warning("Este estudiante no tiene consultas registradas. El archivo se generará con encabezados, pero sin filas.")
 
-        if filtered_students.empty:
+            b1, b2, b3 = st.columns(3)
 
-            st.warning("No hay estudiantes con los filtros seleccionados.")
+            b1.download_button("📊 Exportar CSV", report_df.to_csv(index=False).encode("utf-8-sig"), f"consultas_{profile.get('username','estudiante')}_{selected_id}.csv", "text/csv", use_container_width=True)
+
+            try:
+
+                b2.download_button("📝 Exportar Word", export_student_docx(selected_id), f"reporte_{profile.get('username','estudiante')}_{selected_id}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+
+            except Exception as e:
+
+                b2.warning(f"Word no disponible: {e}")
+
+            try:
+
+                b3.download_button("📄 Exportar PDF", export_student_pdf(selected_id), f"reporte_{profile.get('username','estudiante')}_{selected_id}.pdf", "application/pdf", use_container_width=True)
+
+            except Exception as e:
+
+                b3.warning(f"PDF no disponible: {e}")
+
+
+
+            st.markdown("<div class='teacher-card'><h3>Vista previa de consultas del estudiante</h3></div>", unsafe_allow_html=True)
+
+            st.dataframe(report_df, use_container_width=True, height=420)
 
             return
 
 
 
-        filtered_students = filtered_students.copy()
+        if teacher_page == "👤 Seguimiento individual":
 
-        filtered_students["display"] = filtered_students.apply(lambda r: f"{r.get('username','')} · {r.get('first_names') or ''} {r.get('last_names') or ''} · {r.get('subject') or ''} · {r.get('course') or ''}", axis=1)
+            st.markdown("<div class='teacher-card'><h3>👤 Seguimiento individual</h3><p class='small'>Revisa el comportamiento académico de cada estudiante antes de exportar.</p></div>", unsafe_allow_html=True)
 
-        selected_label = st.selectbox("Selecciona estudiante para seguimiento", filtered_students["display"].tolist(), key="follow_student_select")
+            if filtered_students.empty:
 
-        selected_id = int(filtered_students.loc[filtered_students["display"] == selected_label, "id"].iloc[0])
+                st.warning("No hay estudiantes con los filtros seleccionados.")
 
-        profile, report_df = build_student_summary(selected_id)
-
-        st.markdown(
-
-            f"<div class='teacher-card'><h3>{profile.get('first_names') or ''} {profile.get('last_names') or profile.get('username')}</h3>"
-
-            f"<span class='teacher-chip'>Usuario: {profile.get('username') or ''}</span>"
-
-            f"<span class='teacher-chip'>Materia: {profile.get('subject') or 'Sin materia'}</span>"
-
-            f"<span class='teacher-chip'>Curso: {profile.get('course') or 'Sin curso'}</span>"
-
-            f"<span class='teacher-chip'>Nivel: {profile.get('level') or 'Sin nivel'}</span></div>",
-
-            unsafe_allow_html=True,
-
-        )
-
-        if report_df.empty:
-
-            st.info("Este estudiante aún no registra consultas.")
-
-        else:
-
-            g1, g2 = st.columns(2, gap="large")
-
-            user_df = report_df[report_df['role'].astype(str).str.lower().eq('user')].copy()
-
-            if not user_df.empty:
-
-                fig_a = px.histogram(user_df, x='topic', title='Temas consultados')
-
-                fig_a.update_layout(height=420, margin={"r":10,"t":60,"l":10,"b":80})
-
-                g1.plotly_chart(fig_a, use_container_width=True)
-
-            fig_b = px.histogram(report_df, x='created_at', title='Actividad en el tiempo')
-
-            fig_b.update_layout(height=420, margin={"r":10,"t":60,"l":10,"b":80})
-
-            g2.plotly_chart(fig_b, use_container_width=True)
-
-            st.dataframe(report_df, use_container_width=True, height=380)
-
-        return
+                return
 
 
 
-    if teacher_page == "🧾 Datos completos":
+            filtered_students = filtered_students.copy()
 
-        st.markdown("<div class='teacher-card'><h3>🧾 Datos completos</h3><p class='small'>Tablas completas y descargas generales.</p></div>", unsafe_allow_html=True)
+            filtered_students["display"] = filtered_students.apply(lambda r: f"{r.get('username','')} · {r.get('first_names') or ''} {r.get('last_names') or ''} · {r.get('subject') or ''} · {r.get('course') or ''}", axis=1)
 
-        st.subheader("Estudiantes")
+            selected_label = st.selectbox("Selecciona estudiante para seguimiento", filtered_students["display"].tolist(), key="follow_student_select")
 
-        st.dataframe(filtered_students.drop(columns=["display"], errors="ignore"), use_container_width=True, height=300)
+            selected_id = int(filtered_students.loc[filtered_students["display"] == selected_label, "id"].iloc[0])
 
-        st.subheader("Trazabilidad de interacciones")
+            profile, report_df = build_student_summary(selected_id)
 
-        st.dataframe(filtered_logs, use_container_width=True, height=360)
+            st.markdown(
 
-        loc_df = pd.DataFrame(get_location_events())
+                f"<div class='teacher-card'><h3>{profile.get('first_names') or ''} {profile.get('last_names') or profile.get('username')}</h3>"
 
-        st.subheader("Eventos GPS para mapas de calor")
+                f"<span class='teacher-chip'>Usuario: {profile.get('username') or ''}</span>"
 
-        if not loc_df.empty:
+                f"<span class='teacher-chip'>Materia: {profile.get('subject') or 'Sin materia'}</span>"
 
-            st.dataframe(loc_df, use_container_width=True, height=300)
+                f"<span class='teacher-chip'>Curso: {profile.get('course') or 'Sin curso'}</span>"
 
-            st.download_button("📍 CSV eventos GPS", loc_df.to_csv(index=False).encode('utf-8-sig'), "eventos_gps_bunsekichat.csv", "text/csv", use_container_width=True)
+                f"<span class='teacher-chip'>Nivel: {profile.get('level') or 'Sin nivel'}</span></div>",
 
-        else:
+                unsafe_allow_html=True,
 
-            st.info("Aún no hay eventos GPS registrados.")
+            )
 
-        st.subheader("Pruebas y gamificación")
+            if report_df.empty:
 
-        st.dataframe(filtered_quizzes, use_container_width=True, height=300)
+                st.info("Este estudiante aún no registra consultas.")
 
-        x1, x2, x3 = st.columns(3)
+            else:
 
-        x1.download_button("📊 CSV interacciones", filtered_logs.to_csv(index=False).encode('utf-8-sig'), "interacciones_bunsekichat.csv", "text/csv", use_container_width=True)
+                g1, g2 = st.columns(2, gap="large")
 
-        x2.download_button("👥 CSV estudiantes", filtered_students.drop(columns=["display"], errors="ignore").to_csv(index=False).encode('utf-8-sig'), "estudiantes_bunsekichat.csv", "text/csv", use_container_width=True)
+                user_df = report_df[report_df['role'].astype(str).str.lower().eq('user')].copy()
 
-        x3.download_button("🎮 CSV pruebas", filtered_quizzes.to_csv(index=False).encode('utf-8-sig'), "pruebas_bunsekichat.csv", "text/csv", use_container_width=True)
+                if not user_df.empty:
 
-        return
+                    fig_a = px.histogram(user_df, x='topic', title='Temas consultados')
+
+                    fig_a.update_layout(height=420, margin={"r":10,"t":60,"l":10,"b":80})
+
+                    g1.plotly_chart(fig_a, use_container_width=True)
+
+                fig_b = px.histogram(report_df, x='created_at', title='Actividad en el tiempo')
+
+                fig_b.update_layout(height=420, margin={"r":10,"t":60,"l":10,"b":80})
+
+                g2.plotly_chart(fig_b, use_container_width=True)
+
+                st.dataframe(report_df, use_container_width=True, height=380)
+
+            return
+
+
+
+        if teacher_page == "🧾 Datos completos":
+
+            st.markdown("<div class='teacher-card'><h3>🧾 Datos completos</h3><p class='small'>Tablas completas y descargas generales.</p></div>", unsafe_allow_html=True)
+
+            st.subheader("Estudiantes")
+
+            st.dataframe(filtered_students.drop(columns=["display"], errors="ignore"), use_container_width=True, height=300)
+
+            st.subheader("Trazabilidad de interacciones")
+
+            st.dataframe(filtered_logs, use_container_width=True, height=360)
+
+            loc_df = pd.DataFrame(get_location_events())
+
+            st.subheader("Eventos GPS para mapas de calor")
+
+            if not loc_df.empty:
+
+                st.dataframe(loc_df, use_container_width=True, height=300)
+
+                st.download_button("📍 CSV eventos GPS", loc_df.to_csv(index=False).encode('utf-8-sig'), "eventos_gps_bunsekichat.csv", "text/csv", use_container_width=True)
+
+            else:
+
+                st.info("Aún no hay eventos GPS registrados.")
+
+            st.subheader("Pruebas y gamificación")
+
+            st.dataframe(filtered_quizzes, use_container_width=True, height=300)
+
+            x1, x2, x3 = st.columns(3)
+
+            x1.download_button("📊 CSV interacciones", filtered_logs.to_csv(index=False).encode('utf-8-sig'), "interacciones_bunsekichat.csv", "text/csv", use_container_width=True)
+
+            x2.download_button("👥 CSV estudiantes", filtered_students.drop(columns=["display"], errors="ignore").to_csv(index=False).encode('utf-8-sig'), "estudiantes_bunsekichat.csv", "text/csv", use_container_width=True)
+
+            x3.download_button("🎮 CSV pruebas", filtered_quizzes.to_csv(index=False).encode('utf-8-sig'), "pruebas_bunsekichat.csv", "text/csv", use_container_width=True)
+
+            return
 
 
 
@@ -24309,267 +23360,270 @@ def teacher_scoped_page(user):
 
 
 
-    teacher_pages = (
+    from bunseki.ui.teacher_dashboard import render_teacher_header
+    with st.container(key="bui_teacher_surface"):
+        render_teacher_header(st, BUNSEKI_FRONTEND_LOGO_DATA_URI)
+        teacher_pages = (
 
-        "📊 Dashboard docente",
+            "📊 Dashboard docente",
 
-        "📚 Planes analíticos",
+            "📚 Planes analíticos",
 
-        "🧠 Intervención académica",
+            "🧠 Intervención académica",
 
-    )
-
-    nav_key = "teacher_scoped_nav_page"
-
-    fallback_key = "teacher_scoped_nav_fallback"
-
-
-
-    if st.session_state.get(nav_key) not in teacher_pages:
-
-        st.session_state[nav_key] = teacher_pages[0]
-
-    if st.session_state.get(fallback_key) not in teacher_pages:
-
-        st.session_state[fallback_key] = st.session_state[nav_key]
-
-
-
-    with st.sidebar:
-
-        st.markdown("## BunsekiChat")
-
-        st.caption("Panel docente")
-
-        st.success("🔒 Acceso limitado a tus asignaciones")
-
-
-
-        st.markdown("---")
-
-
-
-        for page in teacher_pages:
-
-            if st.button(
-
-                page,
-
-                key=f"teacher_scoped_button_{page}",
-
-                use_container_width=True,
-
-            ):
-
-                st.session_state[nav_key] = page
-
-                st.session_state[fallback_key] = page
-
-                st.rerun()
-
-
-
-        st.markdown("---")
-
-        st.write(f"**Usuario:** {user.get('username', 'Docente')}")
-
-        st.write(f"**Cursos asignados:** {scope['courses']}")
-
-        st.write(f"**Paralelos asignados:** {scope['parallels']}")
-
-        st.markdown("---")
-
-        if st.button(
-            "Cerrar sesi\u00f3n",
-            key="teacher_scoped_logout",
-            use_container_width=True,
-        ):
-            st.session_state.clear()
-            st.rerun()
-
-
-
-
-    def _sync_teacher_scoped_fallback():
-
-        selected = st.session_state.get(fallback_key)
-
-        if selected in teacher_pages:
-
-            st.session_state[nav_key] = selected
-
-
-
-    st.markdown("#### 🧭 Navegación docente")
-
-    st.selectbox(
-
-        "Menú docente alternativo",
-
-        teacher_pages,
-
-        key=fallback_key,
-
-        on_change=_sync_teacher_scoped_fallback,
-
-    )
-
-    st.caption(
-
-        "Este selector permanece disponible aunque el panel lateral "
-
-        "esté oculto."
-
-    )
-
-
-
-    teacher_page = st.session_state.get(nav_key, teacher_pages[0])
-
-
-
-    if teacher_page == "📚 Planes analíticos":
-
-        render_teacher_plan_manager(user)
-
-        return
-
-
-    if teacher_page == "🧠 Intervención académica":
-
-        st.title("🧠 Intervención académica")
-
-        st.caption(
-            "Anal\u00edtica, seguimiento e intervenci\u00f3n sobre los estudiantes "
-            "de tus cursos y paralelos asignados."
         )
 
-        load_key = "teacher_intervention_loaded"
+        nav_key = "teacher_scoped_nav_page"
 
-        if not st.session_state.get(load_key, False):
+        fallback_key = "teacher_scoped_nav_fallback"
 
-            st.info(
-                "La anal\u00edtica detallada se carga solo cuando la necesitas, "
-                "para mantener una navegaci\u00f3n m\u00e1s r\u00e1pida."
-            )
+
+
+        if st.session_state.get(nav_key) not in teacher_pages:
+
+            st.session_state[nav_key] = teacher_pages[0]
+
+        if st.session_state.get(fallback_key) not in teacher_pages:
+
+            st.session_state[fallback_key] = st.session_state[nav_key]
+
+
+
+        with st.sidebar:
+
+            st.markdown("## BunsekiChat")
+
+            st.caption("Panel docente")
+
+            st.success("🔒 Acceso limitado a tus asignaciones")
+
+
+
+            st.markdown("---")
+
+
+
+            for page in teacher_pages:
+
+                if st.button(
+
+                    page,
+
+                    key=f"teacher_scoped_button_{page}",
+
+                    use_container_width=True,
+
+                ):
+
+                    st.session_state[nav_key] = page
+
+                    st.session_state[fallback_key] = page
+
+                    st.rerun()
+
+
+
+            st.markdown("---")
+
+            st.write(f"**Usuario:** {user.get('username', 'Docente')}")
+
+            st.write(f"**Cursos asignados:** {scope['courses']}")
+
+            st.write(f"**Paralelos asignados:** {scope['parallels']}")
+
+            st.markdown("---")
 
             if st.button(
-                "\U0001F4CA Cargar anal\u00edtica de intervenci\u00f3n",
-                key="teacher_load_intervention",
+                "Cerrar sesi\u00f3n",
+                key="teacher_scoped_logout",
                 use_container_width=True,
-                type="primary",
             ):
-                st.session_state[load_key] = True
+                st.session_state.clear()
                 st.rerun()
+
+
+
+
+        def _sync_teacher_scoped_fallback():
+
+            selected = st.session_state.get(fallback_key)
+
+            if selected in teacher_pages:
+
+                st.session_state[nav_key] = selected
+
+
+
+        st.markdown("#### 🧭 Navegación docente")
+
+        st.selectbox(
+
+            "Menú docente alternativo",
+
+            teacher_pages,
+
+            key=fallback_key,
+
+            on_change=_sync_teacher_scoped_fallback,
+
+        )
+
+        st.caption(
+
+            "Este selector permanece disponible aunque el panel lateral "
+
+            "esté oculto."
+
+        )
+
+
+
+        teacher_page = st.session_state.get(nav_key, teacher_pages[0])
+
+
+
+        if teacher_page == "📚 Planes analíticos":
+
+            render_teacher_plan_manager(user)
 
             return
 
-        c_load_1, c_load_2 = st.columns([4, 1])
 
-        with c_load_1:
+        if teacher_page == "🧠 Intervención académica":
+
+            st.title("🧠 Intervención académica")
+
             st.caption(
-                "Anal\u00edtica cargada para los cursos y paralelos asignados."
+                "Anal\u00edtica, seguimiento e intervenci\u00f3n sobre los estudiantes "
+                "de tus cursos y paralelos asignados."
             )
 
-        with c_load_2:
-            if st.button(
-                "Ocultar",
-                key="teacher_hide_intervention",
-                use_container_width=True,
-            ):
-                st.session_state[load_key] = False
-                st.rerun()
+            load_key = "teacher_intervention_loaded"
 
-        render_teacher_intervention_dashboard(user)
+            if not st.session_state.get(load_key, False):
 
-        return
+                st.info(
+                    "La anal\u00edtica detallada se carga solo cuando la necesitas, "
+                    "para mantener una navegaci\u00f3n m\u00e1s r\u00e1pida."
+                )
 
+                if st.button(
+                    "\U0001F4CA Cargar anal\u00edtica de intervenci\u00f3n",
+                    key="teacher_load_intervention",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    st.session_state[load_key] = True
+                    st.rerun()
 
+                return
 
-    st.title("📊 Dashboard docente")
+            c_load_1, c_load_2 = st.columns([4, 1])
 
-    st.caption(
+            with c_load_1:
+                st.caption(
+                    "Anal\u00edtica cargada para los cursos y paralelos asignados."
+                )
 
-        "Vista limitada exclusivamente a tus cursos "
+            with c_load_2:
+                if st.button(
+                    "Ocultar",
+                    key="teacher_hide_intervention",
+                    use_container_width=True,
+                ):
+                    st.session_state[load_key] = False
+                    st.rerun()
 
-        "y paralelos asignados."
+            render_teacher_intervention_dashboard(user)
 
-    )
-
-
-
-    c1, c2, c3 = st.columns(3)
-
-
-
-    with c1:
-
-        st.metric("Cursos asignados", scope["courses"])
-
-
-
-    with c2:
-
-        st.metric("Paralelos asignados", scope["parallels"])
-
+            return
 
 
-    with c3:
 
-        st.metric(
+        st.title("📊 Dashboard docente")
 
-            "Estudiantes matriculados",
+        st.caption(
 
-            scope["enrollments"],
+            "Vista limitada exclusivamente a tus cursos "
+
+            "y paralelos asignados."
 
         )
 
 
 
-    st.markdown("---")
+        c1, c2, c3 = st.columns(3)
 
 
 
-    if scope["enrollments"] == 0:
+        with c1:
 
+            st.metric("Cursos asignados", scope["courses"])
+
+
+
+        with c2:
+
+            st.metric("Paralelos asignados", scope["parallels"])
+
+
+
+        with c3:
+
+            st.metric(
+
+                "Estudiantes matriculados",
+
+                scope["enrollments"],
+
+            )
+
+
+
+        st.markdown("---")
+
+
+
+        if scope["enrollments"] == 0:
+
+            st.info(
+
+                "Actualmente no existen estudiantes matriculados "
+
+                "en tus paralelos."
+
+            )
+
+
+
+        st.markdown("---")
         st.info(
+            "Para revisar alertas, seguimiento y anal\u00edtica detallada, "
+            "abre la secci\u00f3n de Intervenci\u00f3n acad\u00e9mica desde el men\u00fa docente."
+        )
+        st.markdown("---")
 
-            "Actualmente no existen estudiantes matriculados "
+        st.subheader("🔐 Alcance de seguridad")
 
-            "en tus paralelos."
+
+
+        st.success(
+
+            "Tu sesión está restringida a las asignaciones "
+
+            "registradas para este docente."
 
         )
 
 
 
-    st.markdown("---")
-    st.info(
-        "Para revisar alertas, seguimiento y anal\u00edtica detallada, "
-        "abre la secci\u00f3n de Intervenci\u00f3n acad\u00e9mica desde el men\u00fa docente."
-    )
-    st.markdown("---")
+        st.caption(
 
-    st.subheader("🔐 Alcance de seguridad")
+            "Las métricas globales y los estudiantes de otros "
 
+            "docentes no están disponibles en esta vista."
 
-
-    st.success(
-
-        "Tu sesión está restringida a las asignaciones "
-
-        "registradas para este docente."
-
-    )
-
-
-
-    st.caption(
-
-        "Las métricas globales y los estudiantes de otros "
-
-        "docentes no están disponibles en esta vista."
-
-    )
+        )
 
 
 
