@@ -16489,7 +16489,7 @@ def render_student_sidebar(prof):
 
     else:
 
-        student_pages = ["💬 Tutor", "🧠 Evaluación", "📘 Descargar aprendizaje", "🎮 Prueba de nivel", "📈 Mi progreso"]
+        student_pages = ["💬 Tutor", "🎯 Práctica adaptativa", "🧠 Evaluación", "📘 Descargar aprendizaje", "🎮 Prueba de nivel", "📈 Mi progreso"]
 
     if st.session_state.get("student_nav") not in student_pages:
 
@@ -17248,6 +17248,12 @@ def student_page(user):
 
 
 
+    # Resolve context through the authenticated student flow, before exports/chat.
+    # The practice controller owns hydration and durable per-user widget state.
+    if page == "🎯 Práctica adaptativa":
+        render_student_adaptive_practice(user, prof, topic, subtopic, page, user_q)
+        return
+
     if page == "🧠 Evaluación":
 
         render_student_adaptive_evaluation(user, prof, topic, subtopic)
@@ -17355,9 +17361,7 @@ def student_page(user):
 
 
 
-    left,right=st.columns([1.5,1])
-
-    with left:
+    with st.container():
 
         st.markdown("<div class='card'><h3>💬 Tutor matemático</h3><p class='small'>Sugerencias para preguntar mejor:</p></div>", unsafe_allow_html=True)
 
@@ -17399,9 +17403,6 @@ def student_page(user):
 
             st.rerun()
 
-    with right:
-
-        render_student_adaptive_practice(user, prof, topic, subtopic, page, user_q)
 
 
 def render_student_adaptive_practice(user, prof, topic, subtopic, page, user_q):
